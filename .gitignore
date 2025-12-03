@@ -31,3 +31,6 @@ yarn-error.log*
 # Vite
 .vite/
 
+#Audio files
+.mp3
+
