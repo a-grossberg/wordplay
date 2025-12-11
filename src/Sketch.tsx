@@ -723,8 +723,8 @@ const Sketch = () => {
       }
 
       p.draw = () => {
-        // Light tan background: #FBF5E5
-        p.background(251, 245, 229, 255)
+        // Pure white background
+        p.background(255, 255, 255, 255)
 
         streamText(p)
 
