@@ -32,5 +32,11 @@ yarn-error.log*
 .vite/
 
 #Audio files
-.mp3
+*.mp3
+public/*.mp3
+**/*.mp3
+
+# Transcription temp files
+temp_*.mp3
+*.wav
 

@@ -1,6 +1,5 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import p5 from 'p5'
-import { createClient } from '@deepgram/sdk'
 import './Sketch.css'
 
 // TypeScript types
@@ -14,6 +13,92 @@ interface HandPos {
 const Sketch = () => {
   const containerRef = useRef<HTMLDivElement>(null)
   const sketchRef = useRef<p5 | null>(null)
+  const hiddenTextRef = useRef<HTMLDivElement>(null)
+  const wordRefs = useRef<Map<number, HTMLSpanElement>>(new Map())
+  const wordsRef = useRef<string[]>([])
+  const createParticleRef = useRef<((x: number, y: number, char: string, wordIndex: number, charIndex: number) => void) | null>(null)
+  
+  // React state to track which words should be rendered
+  const [visibleWords, setVisibleWords] = useState<number[]>([])
+  
+  // Effect to measure positions when words are rendered
+  useEffect(() => {
+    if (visibleWords.length === 0) return
+    
+    console.log(`Measuring positions for ${visibleWords.length} visible words`)
+    console.log(`wordsRef.current.length: ${wordsRef.current.length}`)
+    console.log(`createParticleRef.current exists: ${!!createParticleRef.current}`)
+    
+    const measureWordPositions = (wordIndex: number) => {
+      const wordSpan = wordRefs.current.get(wordIndex)
+      if (!wordSpan) {
+        console.warn(`Word span not found for index ${wordIndex}`)
+        return
+      }
+      
+      const words = wordsRef.current
+      const createParticle = createParticleRef.current
+      if (!createParticle) {
+        console.warn('createParticle callback not ready yet')
+        return
+      }
+      
+      // Get the canvas position for coordinate conversion
+      const canvasRect = containerRef.current?.getBoundingClientRect()
+      if (!canvasRect) {
+        console.warn('Canvas rect not found')
+        return
+      }
+      
+      const word = words[wordIndex]
+      if (!word) {
+        console.warn(`Word at index ${wordIndex} not found in words array`)
+        return
+      }
+      
+      // Get character positions using Range API
+      const textNode = wordSpan.firstChild
+      if (!textNode || textNode.nodeType !== Node.TEXT_NODE) {
+        console.warn(`Text node not found for word ${wordIndex}`)
+        return
+      }
+      
+      let particlesCreated = 0
+      for (let i = 0; i < word.length; i++) {
+        const char = word[i]
+        
+        // Skip spaces (they're not rendered as particles)
+        if (char === ' ') continue
+        
+        // Create a range for this specific character
+        const range = document.createRange()
+        try {
+          range.setStart(textNode, i)
+          range.setEnd(textNode, i + 1)
+          
+          const charRect = range.getBoundingClientRect()
+          
+          // Convert to canvas coordinates
+          // Center of the character horizontally, baseline vertically
+          const x = charRect.left - canvasRect.left + charRect.width / 2
+          const y = charRect.top - canvasRect.top + charRect.height / 2
+          
+          createParticle(x, y, char, wordIndex, i)
+          particlesCreated++
+        } catch (e) {
+          console.warn(`Failed to get position for character ${i} in word ${wordIndex}:`, e)
+        }
+      }
+      console.log(`Created ${particlesCreated} particles for word ${wordIndex}: "${word}"`)
+    }
+    
+    // Measure all visible words with a small delay to ensure DOM is ready
+    visibleWords.forEach(wordIndex => {
+      setTimeout(() => {
+        measureWordPositions(wordIndex)
+      }, 10)
+    })
+  }, [visibleWords])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -33,16 +118,17 @@ const Sketch = () => {
     // Audio and text streaming
     let audioElement: HTMLAudioElement | null = null
     let transcriptionWords: Array<{ word: string, start: number, end: number }> = []
+    // Fallback text (only used if transcription.json is not found)
     const fullText = "The quick brown fox jumps over the lazy dog. This is a test of the ASCII magnetic particle system. Each word appears as you hear it, creating an interactive fidget experience. You can pull and push the text with your hands, watching the characters connect magnetically like a kinetic sculpture. The text flows naturally, word by word, creating a mesmerizing visual that responds to your movements."
     let words: string[] = []
+    // wordsRef will be updated when words are loaded
     let currentWordIndex = 0
     let wordsPerSecond = 2.5
-    let lastWordTime = 0
     let streamingActive = true
     
-    // Track line layout for justification
-    let lineWords: number[][] = [] // Array of arrays, each containing word indices for that line
-    let wordPositions: { x: number, y: number, lineIndex: number }[] = [] // Pre-calculated positions
+    // Track line layout for justification (kept for potential future use)
+    let _lineWords: number[][] = [] // Array of arrays, each containing word indices for that line
+    let _wordPositions: { x: number, y: number, lineIndex: number }[] = [] // Pre-calculated positions
 
     // ASCII Particle class
     class ASCIIParticle {
@@ -57,12 +143,13 @@ const Sketch = () => {
       springStrength: number
       highlighted: boolean
       wordIndex: number
+      charIndex: number // Index of this character within its word
       saved: boolean
       saveVelocity: HandPos
       jumpVelocity: number // For jump animation
       jumpTarget: number // Target jump height
 
-      constructor(x: number, y: number, char: string, wordIndex: number = -1) {
+      constructor(x: number, y: number, char: string, wordIndex: number = -1, charIndex: number = -1) {
         this.x = x
         this.y = y
         this.char = char
@@ -71,9 +158,10 @@ const Sketch = () => {
         this.size = PARTICLE_SIZE
         this.targetX = x
         this.targetY = y
-        this.springStrength = 0.25 // Very strong spring to prevent overlap
+        this.springStrength = 0.8 // Very strong spring to maintain exact spacing
         this.highlighted = false
         this.wordIndex = wordIndex
+        this.charIndex = charIndex
         this.saved = false
         this.saveVelocity = { x: 0, y: 0 }
         this.jumpVelocity = 0
@@ -82,6 +170,7 @@ const Sketch = () => {
 
       update(p: p5) {
         // Check if hand is near and trigger jump - each particle jumps independently
+        let handIsNear = false
         if (useHandTracking && handDetected && handPos.x >= 0) {
           const dx = this.x - handPos.x
           const dy = this.y - handPos.y
@@ -89,6 +178,7 @@ const Sketch = () => {
           const jumpRadius = 100 // Smaller radius for more individual particle response
           
           if (distance < jumpRadius) {
+            handIsNear = true
             // Calculate jump strength based on proximity - more granular for sparkly effect
             const proximity = 1 - distance / jumpRadius
             // Use a curve to make particles closer to hand jump more, creating sparkly effect
@@ -106,32 +196,69 @@ const Sketch = () => {
         // Apply jump to vertical position (subtract to move up)
         const jumpOffset = -this.jumpVelocity
         
+        // SIMPLIFIED APPROACH: Lock particles to exact positions when hand is not near
+        // This prevents drift and overlap issues
+        if (!handIsNear) {
+          // No interaction - lock to exact position immediately (no tolerance)
+          this.x = this.targetX
+          this.y = this.targetY
+          this.vx = 0
+          this.vy = 0
+          this.jumpVelocity = 0
+          this.jumpTarget = 0
+          return // Skip physics when locked
+        }
+        
+        // When hand is near, still keep particles close to targets
+        // Only allow small deviations for the jump effect
+        
+        // Only apply physics when hand is near or particle is moving
         let targetDx = this.targetX - this.x
         let targetDy = this.targetY - this.y
+        
+        // Very strong spring to keep particles at exact positions
         this.vx += targetDx * this.springStrength
         this.vy += (targetDy + jumpOffset) * this.springStrength
         
-        // Prevent overlap
-        for (let other of particles) {
-          if (other === this || other.char === ' ' || this.char === ' ') continue
-          
-          const dx = this.x - other.x
-          const dy = this.y - other.y
-          const distance = p.sqrt(dx * dx + dy * dy)
-          const sameWord = other.wordIndex === this.wordIndex
-          const minDistance = sameWord ? PARTICLE_SIZE * 0.6 : PARTICLE_SIZE * 0.8
-          
-          if (distance > 0 && distance < minDistance) {
-            const pushForce = (minDistance - distance) / minDistance * 0.2
-            this.vx += (dx / distance) * pushForce
-            this.vy += (dy / distance) * pushForce
+        // Prevent overlap - only when hand is near (otherwise particles are locked)
+        if (handIsNear) {
+          for (let other of particles) {
+            if (other === this || other.char === ' ' || this.char === ' ') continue
+            
+            const sameWord = other.wordIndex === this.wordIndex
+            const dx = this.x - other.x
+            const dy = this.y - other.y
+            const distance = p.sqrt(dx * dx + dy * dy)
+            
+            // Different minimum distances for same word vs different words
+            const minDistance = sameWord ? PARTICLE_SIZE * 0.75 : PARTICLE_SIZE * 1.2
+            
+            if (distance > 0 && distance < minDistance) {
+              // Stronger push for same word, weaker for different words
+              const pushForce = sameWord 
+                ? (minDistance - distance) / minDistance * 0.4
+                : (minDistance - distance) / minDistance * 0.15
+              this.vx += (dx / distance) * pushForce
+              this.vy += (dy / distance) * pushForce
+            }
           }
         }
 
         this.x += this.vx
         this.y += this.vy
-        this.vx *= 0.92
-        this.vy *= 0.92
+        // Stronger damping to prevent drift and keep particles locked
+        this.vx *= 0.85
+        this.vy *= 0.85
+        
+        // Strong locking: if very close to target and not interacting, snap to it
+        if (!handIsNear && Math.abs(this.targetX - this.x) < 2.0) {
+          this.x = this.targetX
+          this.vx = 0
+        }
+        if (!handIsNear && Math.abs(this.targetY - this.y) < 2.0) {
+          this.y = this.targetY
+          this.vy = 0
+        }
 
         const margin = 20
         if (this.x < margin) {
@@ -161,177 +288,161 @@ const Sketch = () => {
       draw(p: p5) {
         if (this.char === ' ') return
 
-        // Add subtle glow effect
-        p.drawingContext.shadowBlur = 4
-        p.drawingContext.shadowColor = 'rgba(255, 255, 255, 0.2)'
-        
-        p.noStroke()
-        p.fill(255, 255, 255, 255) // White
-        p.textAlign(p.CENTER, p.CENTER)
+        // Ensure text settings match exactly how we positioned particles
         p.textSize(this.size)
+        // Use CENTER alignment since particles are positioned at character centers from DOM
+        p.textAlign(p.CENTER, p.CENTER)
+        
+        // Liquid ink effect: multiple blur layers for blob-like appearance
+        const ctx = p.drawingContext
+        
+        // Draw multiple layers with increasing blur for liquid ink effect
+        // Outer glow layer (largest blur)
+        ctx.shadowBlur = 25
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.15)'
+        ctx.shadowOffsetX = 0
+        ctx.shadowOffsetY = 0
+        p.noStroke()
+        p.fill(0, 0, 0, 80) // Semi-transparent black
+        p.text(this.char, this.x, this.y)
+        
+        // Middle layer (medium blur)
+        ctx.shadowBlur = 15
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.25)'
+        p.fill(0, 0, 0, 120)
+        p.text(this.char, this.x, this.y)
+        
+        // Inner layer (small blur)
+        ctx.shadowBlur = 8
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.35)'
+        p.fill(0, 0, 0, 180)
+        p.text(this.char, this.x, this.y)
+        
+        // Core (no blur, solid)
+        ctx.shadowBlur = 0
+        p.fill(0, 0, 0, 255)
         p.text(this.char, this.x, this.y)
         
         // Reset shadow
-        p.drawingContext.shadowBlur = 0
+        ctx.shadowBlur = 0
+        ctx.shadowColor = 'transparent'
       }
     }
 
-    const addWordToParticles = (p: p5, word: string, startX: number, startY: number, wordIndex: number) => {
-      const fontSize = PARTICLE_SIZE
-      p.textSize(fontSize)
-      p.textAlign(p.LEFT, p.BASELINE)
-      
-      let currentX = startX
-      
-      for (let i = 0; i < word.length; i++) {
-        const char = word[i]
-        
-        // Measure actual character width
-        const charWidth = p.textWidth(char)
-        const x = currentX + charWidth / 2 // Center of character for drawing
-        const y = startY
-        
-        // Very minimal offset for animation
-        const offsetX = p.random(-2, 2)
-        const offsetY = p.random(-2, 2)
-        
-        const particle = new ASCIIParticle(x + offsetX, y + offsetY, char, wordIndex)
-        particle.targetX = x
-        particle.targetY = y
-        particles.push(particle)
-        
-        // Move to next character position using actual width
-        currentX += charWidth
-      }
-    }
-
-    // Pre-calculate all word positions with justification
-    const calculateTextLayout = (p: p5) => {
-      const fontSize = PARTICLE_SIZE
-      p.textSize(fontSize)
-      p.textAlign(p.LEFT, p.BASELINE)
-      
-      const textAscent = p.textAscent()
-      const textDescent = p.textDescent()
-      const lineHeight = textAscent + textDescent + fontSize * 0.4
-      const spaceWidth = p.textWidth(' ')
-      
-      // Account for video container (top-right: 200px wide + 20px right margin)
-      const videoWidth = 200
-      const videoRight = 20
-      
-      // Left margin - increased to move text away from left edge
-      const leftMargin = 200
-      // Right margin accounts for video if text would overlap
-      const rightMargin = Math.max(50, videoWidth + videoRight + 20)
-      
-      const maxLineWidth = p.width - leftMargin - rightMargin
-      
-      lineWords = []
-      wordPositions = []
-      
-      let currentLine: number[] = []
-      let currentLineWidth = 0
-      
-      // First pass: group words into lines
-      for (let i = 0; i < words.length; i++) {
-        const word = words[i]
-        const wordWidth = p.textWidth(word)
-        const wordWithSpace = wordWidth + (i < words.length - 1 ? spaceWidth : 0)
-        
-        if (currentLine.length === 0 || currentLineWidth + wordWithSpace <= maxLineWidth) {
-          // Word fits on current line
-          currentLine.push(i)
-          currentLineWidth += wordWithSpace
-        } else {
-          // Start new line
-          lineWords.push([...currentLine])
-          currentLine = [i]
-          currentLineWidth = wordWithSpace
-        }
-      }
-      if (currentLine.length > 0) {
-        lineWords.push(currentLine)
+    // Function to create particles from measured positions
+    const createParticleFromPosition = (x: number, y: number, char: string, wordIndex: number, charIndex: number) => {
+      // Check if particles for this word already exist to prevent duplicates
+      const existingParticles = particles.filter(part => part.wordIndex === wordIndex && part.charIndex === charIndex)
+      if (existingParticles.length > 0) {
+        return
       }
       
-      // Second pass: calculate justified positions
-      // Center vertically on entire screen, but offset down a bit
-      const totalTextHeight = lineWords.length * lineHeight
-      const startY = (p.height - totalTextHeight) / 2 + textAscent + 80 // Offset down by 80px
-      
-      for (let lineIndex = 0; lineIndex < lineWords.length; lineIndex++) {
-        const line = lineWords[lineIndex]
-        const y = startY + lineIndex * lineHeight
-        
-        // Calculate total width of words on this line (without spaces)
-        let totalWordsWidth = 0
-        for (let wordIndex of line) {
-          totalWordsWidth += p.textWidth(words[wordIndex])
-        }
-        
-        // Calculate spacing for justification
-        const numSpaces = line.length - 1
-        const extraSpace = maxLineWidth - totalWordsWidth
-        const spaceBetweenWords = numSpaces > 0 ? extraSpace / numSpaces : 0
-        
-        // Position each word
-        let x = leftMargin
-        for (let i = 0; i < line.length; i++) {
-          const wordIndex = line[i]
-          wordPositions[wordIndex] = { x, y, lineIndex }
-          
-          const wordWidth = p.textWidth(words[wordIndex])
-          x += wordWidth + spaceBetweenWords
-        }
-      }
+      const particle = new ASCIIParticle(x, y, char, wordIndex, charIndex)
+      particle.targetX = x
+      particle.targetY = y
+      particles.push(particle)
     }
     
-    const transcribeAudioFile = async (apiKey: string) => {
+    // Store callback in ref so React effect can use it
+    createParticleRef.current = createParticleFromPosition
+    
+    // Add word to visible words (React will render it, then useEffect will measure)
+    const addWordToParticles = (wordIndex: number) => {
+      console.log(`Adding word ${wordIndex} to visible words. Total words: ${wordsRef.current.length}`)
+      setVisibleWords(prev => {
+        if (prev.includes(wordIndex)) {
+          console.log(`Word ${wordIndex} already visible`)
+          return prev
+        }
+        const newVisible = [...prev, wordIndex]
+        console.log(`Visible words now:`, newVisible)
+        return newVisible
+      })
+    }
+
+    // Set up the hidden text container to match canvas dimensions and styling
+    const setupTextContainer = (p: p5) => {
+      const hiddenTextContainer = hiddenTextRef.current
+      if (!hiddenTextContainer) return
+      
+      // Match canvas dimensions
+      hiddenTextContainer.style.width = `${p.width}px`
+      hiddenTextContainer.style.height = `${p.height}px`
+      hiddenTextContainer.style.fontSize = `${PARTICLE_SIZE}px`
+      hiddenTextContainer.style.lineHeight = `${PARTICLE_SIZE * 1.5}px`
+      
+      // Set up margins to match canvas layout
+      const videoWidth = 200
+      const videoRight = 20
+      const sideMargin = Math.max(50, videoWidth + videoRight + 20)
+      hiddenTextContainer.style.paddingLeft = `${sideMargin}px`
+      hiddenTextContainer.style.paddingRight = `${sideMargin}px`
+      hiddenTextContainer.style.paddingTop = '80px'
+      hiddenTextContainer.style.textAlign = 'justify'
+      hiddenTextContainer.style.whiteSpace = 'normal' // Important: normal flow for justification
+      hiddenTextContainer.style.wordSpacing = 'normal'
+      hiddenTextContainer.style.letterSpacing = 'normal'
+    }
+    
+    // Legacy function kept for compatibility - now just sets up container
+    const _calculateTextLayout = (p: p5) => {
+      setupTextContainer(p)
+      // Word positions will be determined by DOM measurements
+      _wordPositions = words.map(() => ({ x: 0, y: 0, lineIndex: 0 }))
+    }
+    
+    const loadTranscriptionFromFile = async () => {
       try {
-        const deepgram = createClient(apiKey)
-        updateHandStatus('Transcribing audio...')
+        console.log('Loading transcription from JSON file...')
+        updateHandStatus('Loading transcription...')
         
-        // Fetch the audio file
-        const audioResponse = await fetch('/The Picture of Dorian Gray by Oscar Wilde  Full audiobook.mp3')
-        const audioBuffer = await audioResponse.arrayBuffer()
+        // Try to load the transcription JSON file
+        // You can generate this using Whisper or other free transcription tools
+        const response = await fetch('/transcription.json')
         
-        // Transcribe with word-level timestamps
-        // Deepgram SDK v4 accepts buffer with mimetype
-        const { result, error } = await deepgram.listen.prerecorded.transcribeFile(
-          { buffer: audioBuffer, mimetype: 'audio/mpeg' } as any,
-          {
-            model: 'nova-2',
-            language: 'en-US',
-            punctuate: true,
-            diarize: false,
-            paragraphs: false,
-            utterances: false,
-          }
-        )
-        
-        if (error) {
-          throw error
+        if (!response.ok) {
+          throw new Error(`Failed to load transcription file: ${response.status} ${response.statusText}`)
         }
         
-        // Extract words with timestamps
-        const transcript = result?.results?.channels?.[0]?.alternatives?.[0]
-        if (transcript?.words) {
-          transcriptionWords = transcript.words.map((w: any) => ({
+        const data = await response.json()
+        console.log('Transcription file loaded:', data)
+        
+        // Handle different JSON formats
+        let wordsArray: Array<{ word: string, start: number, end: number }> = []
+        
+        if (data.words && Array.isArray(data.words)) {
+          // Format: { words: [{ word: "...", start: ..., end: ... }] }
+          wordsArray = data.words
+        } else if (data.results?.channels?.[0]?.alternatives?.[0]?.words) {
+          // Alternative format (e.g., from other transcription services)
+          wordsArray = data.results.channels[0].alternatives[0].words.map((w: any) => ({
             word: w.word,
             start: w.start,
             end: w.end
           }))
-          
-          words = transcriptionWords.map(w => w.word)
-          console.log('Transcription complete:', words.length, 'words')
-          updateHandStatus('Transcription ready')
-          return true
+        } else if (Array.isArray(data)) {
+          // Format: [{ word: "...", start: ..., end: ... }]
+          wordsArray = data
         } else {
-          throw new Error('No transcription results')
+          throw new Error('Unknown transcription format')
         }
+        
+        if (wordsArray.length === 0) {
+          throw new Error('No words found in transcription file')
+        }
+        
+        transcriptionWords = wordsArray
+        words = transcriptionWords.map(w => w.word)
+        wordsRef.current = words // Update React ref
+        
+        console.log('Transcription loaded:', words.length, 'words')
+        console.log('First 20 words:', words.slice(0, 20).join(' '))
+        updateHandStatus('Transcription ready')
+        return true
       } catch (err: any) {
-        console.error('Transcription error:', err)
-        updateHandStatus('Transcription failed - using fallback text')
+        console.error('Failed to load transcription file:', err)
+        console.error('Error details:', err.message)
+        updateHandStatus(`Transcription file not found: ${err.message}`)
         return false
       }
     }
@@ -343,21 +454,20 @@ const Sketch = () => {
       audioElement.preload = 'auto'
       audioElement.volume = 1.0 // Ensure volume is at max
       
-      // Try to transcribe with Deepgram if API key is available
-      const DEEPGRAM_API_KEY = import.meta.env.VITE_DEEPGRAM_API_KEY || ''
+      // Try to load transcription from JSON file first
+      console.log('Attempting to load transcription from file...')
+      const transcriptionLoaded = await loadTranscriptionFromFile()
       
-      if (DEEPGRAM_API_KEY) {
-        const transcribed = await transcribeAudioFile(DEEPGRAM_API_KEY)
-        if (!transcribed) {
-          // Fallback to placeholder text
-          words = fullText.split(' ').filter(w => w.length > 0)
-          console.log('Using fallback text:', words.length, 'words')
-        }
-      } else {
-        console.warn('No Deepgram API key found. Using placeholder text.')
-        console.warn('To enable transcription, create a .env file with: VITE_DEEPGRAM_API_KEY=your_key')
+      if (!transcriptionLoaded) {
+        // Fallback to placeholder text
+        console.warn('Transcription file not found, using fallback text')
+        console.warn('To use transcription, create a /public/transcription.json file')
+        console.warn('See TRANSCRIPTION_SETUP.md for instructions on generating it')
         words = fullText.split(' ').filter(w => w.length > 0)
-        console.log('Using placeholder text:', words.length, 'words')
+        wordsRef.current = words // Update React ref
+        console.log('Using fallback text:', words.length, 'words')
+      } else {
+        console.log('Transcription loaded successfully! Using transcribed text.')
       }
       
       // Audio event handlers
@@ -382,15 +492,14 @@ const Sketch = () => {
                 audioElement.play().then(() => {
                   console.log('Audio started successfully, duration:', audioElement?.duration)
                   streamingActive = true
-                  lastWordTime = Date.now()
-                  currentWordIndex = 0 // Reset word index when starting
+                  // Only reset if this is the first time playing (audio hasn't started yet)
+                  if (audioElement && audioElement.currentTime === 0) {
+                    currentWordIndex = 0 // Reset word index when starting from beginning
+                  }
                   
                 }).catch(err => {
                   console.error('Error playing audio:', err)
                   updateHandStatus('Audio play failed: ' + err.message)
-                  // Try fallback - start streaming anyway
-                  streamingActive = true
-                  lastWordTime = Date.now()
                 })
               } else {
                 audioElement.pause()
@@ -405,7 +514,8 @@ const Sketch = () => {
         console.log('Audio playing')
         updateHandStatus('Audio playing')
         streamingActive = true
-        lastWordTime = Date.now()
+        // Don't reset currentWordIndex - let it continue from where it was
+        // This allows resuming after pause to continue from the same position
         const playButton = document.getElementById('play-button')
         if (playButton) {
           playButton.textContent = '⏸ Pause'
@@ -439,13 +549,13 @@ const Sketch = () => {
       // Ensure words are initialized
       if (words.length === 0) {
         words = fullText.split(' ').filter(w => w.length > 0)
+        wordsRef.current = words // Update React ref
         console.log('Initialized words in streamText:', words.length)
       }
       
-      // Recalculate layout on first word or if layout is empty
-      if (wordPositions.length === 0 && words.length > 0) {
-        calculateTextLayout(p)
-        console.log('Layout calculated for', words.length, 'words')
+      // Set up text container on first word or if not set up
+      if (words.length > 0) {
+        setupTextContainer(p)
       }
       
       if (currentWordIndex >= words.length) {
@@ -453,27 +563,33 @@ const Sketch = () => {
       }
       
       // Sync to audio playback time using transcription timestamps if available
-      if (audioElement && !audioElement.paused && audioElement.currentTime > 0) {
+      // Require audio to be playing and have advanced past initial load (0.1s threshold)
+      if (audioElement && !audioElement.paused && audioElement.currentTime >= 0.1) {
         const audioTimeSeconds = audioElement.currentTime
         
         if (transcriptionWords.length > 0) {
-          // Use actual transcription timestamps for accurate sync
+          // Use actual transcription timestamps - show words exactly at their start times
+          // Find the correct word index based on audio time (handles seeking/restarting)
           let targetWordIndex = 0
           for (let i = 0; i < transcriptionWords.length; i++) {
-            if (audioTimeSeconds >= transcriptionWords[i].start && audioTimeSeconds <= transcriptionWords[i].end) {
-              targetWordIndex = i
-              break
-            } else if (audioTimeSeconds > transcriptionWords[i].end) {
+            // Only show word when we're at or past its exact start time
+            // Use strict comparison to prevent words from showing too early
+            if (audioTimeSeconds >= transcriptionWords[i].start) {
               targetWordIndex = i + 1
+            } else {
+              break
             }
           }
           
-          // Add words up to the current audio position
-          while (currentWordIndex <= targetWordIndex && currentWordIndex < words.length) {
+          // Add any words that should be visible but aren't yet
+          while (currentWordIndex < targetWordIndex && currentWordIndex < words.length) {
             const word = words[currentWordIndex]
-            if (word && wordPositions[currentWordIndex]) {
-              const pos = wordPositions[currentWordIndex]
-              addWordToParticles(p, word, pos.x, pos.y, currentWordIndex)
+            if (word) {
+              // Debug logging for "the" specifically
+              if (word.toLowerCase() === 'the' && currentWordIndex === 4) {
+                console.log(`Showing "the" at audio time: ${audioTimeSeconds.toFixed(2)}s, expected: ${transcriptionWords[currentWordIndex].start}s`)
+              }
+              addWordToParticles(currentWordIndex)
             }
             currentWordIndex++
           }
@@ -482,31 +598,14 @@ const Sketch = () => {
           const estimatedWordIndex = Math.floor(audioTimeSeconds * wordsPerSecond)
           while (currentWordIndex <= estimatedWordIndex && currentWordIndex < words.length) {
             const word = words[currentWordIndex]
-            if (word && wordPositions[currentWordIndex]) {
-              const pos = wordPositions[currentWordIndex]
-              addWordToParticles(p, word, pos.x, pos.y, currentWordIndex)
+            if (word) {
+              addWordToParticles(currentWordIndex)
             }
             currentWordIndex++
           }
         }
-        lastWordTime = Date.now()
-      } else {
-        // Always stream text even if audio not playing (for testing)
-        const currentTime = Date.now()
-        const timePerWord = 1000 / wordsPerSecond
-        
-        if (currentTime - lastWordTime >= timePerWord) {
-          const word = words[currentWordIndex]
-          
-          if (word && wordPositions[currentWordIndex]) {
-            const pos = wordPositions[currentWordIndex]
-            addWordToParticles(p, word, pos.x, pos.y, currentWordIndex)
-          }
-          
-          currentWordIndex++
-          lastWordTime = currentTime
-        }
       }
+      // Words only appear when audio is playing - no fallback streaming
     }
 
 
@@ -612,17 +711,20 @@ const Sketch = () => {
     const sketch = (p: p5) => {
       p.setup = () => {
         p.createCanvas(p.windowWidth, p.windowHeight)
+        
+        // Set up the hidden text container to match canvas
+        setupTextContainer(p)
 
         setTimeout(() => {
           initializeHandTracking()
           initializeAudio()
         }, 100)
 
-        lastWordTime = p.millis()
       }
 
       p.draw = () => {
-        p.background(0, 0, 0, 15)
+        // Light tan background: #FBF5E5
+        p.background(251, 245, 229, 255)
 
         streamText(p)
 
@@ -638,11 +740,11 @@ const Sketch = () => {
         if (useHandTracking && handDetected && handPos.x >= 0) {
           p.push()
           p.noFill()
-          p.stroke(255, 255, 255, 40) // Very subtle white
+          p.stroke(0, 0, 0, 40) // Very subtle black
           p.strokeWeight(1)
           p.circle(handPos.x, handPos.y, 20) // Small circle
           // Small dot in center
-          p.fill(255, 255, 255, 60)
+          p.fill(0, 0, 0, 60)
           p.noStroke()
           p.circle(handPos.x, handPos.y, 4)
           p.pop()
@@ -657,16 +759,17 @@ const Sketch = () => {
         if (p.key === 'r' || p.key === 'R') {
           particles = []
           currentWordIndex = 0
-          lastWordTime = p.millis()
           streamingActive = true
-          wordPositions = []
-          lineWords = []
-          calculateTextLayout(p)
+          _wordPositions = []
+          _lineWords = []
+          // Clear visible words (React will handle DOM cleanup)
+          setVisibleWords([])
+          wordRefs.current.clear()
+          setupTextContainer(p)
         }
         if (p.key === 'p' || p.key === 'P') {
           streamingActive = !streamingActive
           if (streamingActive) {
-            lastWordTime = p.millis()
           }
         }
         if (p.key === '+' || p.key === '=') {
@@ -679,30 +782,40 @@ const Sketch = () => {
 
       p.windowResized = () => {
         p.resizeCanvas(p.windowWidth, p.windowHeight)
-        // Recalculate layout on resize to fill new screen size
-        wordPositions = []
-        lineWords = []
-        calculateTextLayout(p)
-        // Reposition existing particles
-        for (let particle of particles) {
-          if (particle.wordIndex >= 0 && wordPositions[particle.wordIndex]) {
-            const pos = wordPositions[particle.wordIndex]
-            // Find character position within word
-            p.textSize(PARTICLE_SIZE)
-            p.textAlign(p.LEFT, p.BASELINE)
-            const word = words[particle.wordIndex]
-            let charX = pos.x
-            for (let i = 0; i < word.length; i++) {
-              if (word[i] === particle.char) {
-                const charWidth = p.textWidth(particle.char)
-                particle.targetX = charX + charWidth / 2
-                particle.targetY = pos.y
-                break
-              }
-              charX += p.textWidth(word[i])
+        // Update text container to match new canvas size
+        setupTextContainer(p)
+        
+        // Re-measure all existing particles from React-rendered DOM
+        const canvasRect = containerRef.current?.getBoundingClientRect()
+        if (!canvasRect) return
+        
+        // Update particle positions from DOM (React elements are already rendered)
+        setTimeout(() => {
+          for (let particle of particles) {
+            const wordSpan = wordRefs.current.get(particle.wordIndex)
+            if (!wordSpan) continue
+            
+            const textNode = wordSpan.firstChild
+            if (!textNode || textNode.nodeType !== Node.TEXT_NODE) continue
+            
+            try {
+              const range = document.createRange()
+              range.setStart(textNode, particle.charIndex)
+              range.setEnd(textNode, particle.charIndex + 1)
+              
+              const charRect = range.getBoundingClientRect()
+              const x = charRect.left - canvasRect.left + charRect.width / 2
+              const y = charRect.top - canvasRect.top + charRect.height / 2
+              
+              particle.targetX = x
+              particle.targetY = y
+              particle.x = x
+              particle.y = y
+            } catch (e) {
+              console.warn(`Failed to reposition particle:`, e)
             }
           }
-        }
+        }, 0)
       }
     }
 
@@ -724,6 +837,38 @@ const Sketch = () => {
 
   return (
     <div className="sketch-container">
+      {/* Hidden text container for accurate character positioning - rendered with React */}
+      <div 
+        ref={hiddenTextRef}
+        id="hidden-text-container"
+        className="hidden-text-container"
+      >
+        {visibleWords.length > 0 && wordsRef.current.length > 0 && visibleWords.map((wordIndex) => {
+          const word = wordsRef.current[wordIndex]
+          if (!word) {
+            console.warn(`Word at index ${wordIndex} not found. Total words: ${wordsRef.current.length}`)
+            return null
+          }
+          
+          return (
+            <span key={wordIndex}>
+              <span
+                ref={(el) => {
+                  if (el) {
+                    wordRefs.current.set(wordIndex, el)
+                  } else {
+                    wordRefs.current.delete(wordIndex)
+                  }
+                }}
+                className={`word-${wordIndex}`}
+              >
+                {word}
+              </span>
+              {wordIndex < wordsRef.current.length - 1 && ' '}
+            </span>
+          )
+        })}
+      </div>
       <div ref={containerRef} className="p5-container" />
       <div id="video-container">
         <video id="input_video"></video>

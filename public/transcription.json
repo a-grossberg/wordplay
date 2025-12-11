@@ -1,0 +1,674 @@
+{
+  "words": [
+    {
+      "word": "Gates",
+      "start": 0.0,
+      "end": 0.78
+    },
+    {
+      "word": "of",
+      "start": 0.78,
+      "end": 1.06
+    },
+    {
+      "word": "imagination",
+      "start": 1.06,
+      "end": 1.66
+    },
+    {
+      "word": "presents",
+      "start": 1.66,
+      "end": 2.38
+    },
+    {
+      "word": "the",
+      "start": 2.38,
+      "end": 4.34
+    },
+    {
+      "word": "picture",
+      "start": 4.34,
+      "end": 4.7
+    },
+    {
+      "word": "of",
+      "start": 4.7,
+      "end": 4.92
+    },
+    {
+      "word": "Dorian",
+      "start": 4.92,
+      "end": 5.3
+    },
+    {
+      "word": "Grey",
+      "start": 5.3,
+      "end": 5.64
+    },
+    {
+      "word": "by",
+      "start": 5.64,
+      "end": 6.2
+    },
+    {
+      "word": "Oscar",
+      "start": 6.2,
+      "end": 6.5
+    },
+    {
+      "word": "Wilde,",
+      "start": 6.5,
+      "end": 8.1
+    },
+    {
+      "word": "read",
+      "start": 8.2,
+      "end": 8.36
+    },
+    {
+      "word": "by",
+      "start": 8.36,
+      "end": 8.56
+    },
+    {
+      "word": "Arthur",
+      "start": 8.56,
+      "end": 8.88
+    },
+    {
+      "word": "Lane.",
+      "start": 8.88,
+      "end": 9.26
+    },
+    {
+      "word": "The",
+      "start": 11.14,
+      "end": 11.86
+    },
+    {
+      "word": "preface.",
+      "start": 11.86,
+      "end": 12.32
+    },
+    {
+      "word": "The",
+      "start": 13.8,
+      "end": 14.52
+    },
+    {
+      "word": "artist",
+      "start": 14.52,
+      "end": 14.92
+    },
+    {
+      "word": "is",
+      "start": 14.92,
+      "end": 15.28
+    },
+    {
+      "word": "the",
+      "start": 15.28,
+      "end": 15.44
+    },
+    {
+      "word": "creator",
+      "start": 15.44,
+      "end": 15.92
+    },
+    {
+      "word": "of",
+      "start": 15.92,
+      "end": 16.14
+    },
+    {
+      "word": "beautiful",
+      "start": 16.14,
+      "end": 16.42
+    },
+    {
+      "word": "things.",
+      "start": 16.42,
+      "end": 17.04
+    },
+    {
+      "word": "To",
+      "start": 17.78,
+      "end": 18.06
+    },
+    {
+      "word": "reveal",
+      "start": 18.06,
+      "end": 18.36
+    },
+    {
+      "word": "art",
+      "start": 18.36,
+      "end": 18.84
+    },
+    {
+      "word": "and",
+      "start": 18.84,
+      "end": 19.22
+    },
+    {
+      "word": "conceal",
+      "start": 19.22,
+      "end": 19.6
+    },
+    {
+      "word": "the",
+      "start": 19.6,
+      "end": 19.86
+    },
+    {
+      "word": "artist",
+      "start": 19.86,
+      "end": 20.2
+    },
+    {
+      "word": "is",
+      "start": 20.2,
+      "end": 20.46
+    },
+    {
+      "word": "art's",
+      "start": 20.46,
+      "end": 20.88
+    },
+    {
+      "word": "aim.",
+      "start": 20.88,
+      "end": 21.12
+    },
+    {
+      "word": "The",
+      "start": 21.98,
+      "end": 22.26
+    },
+    {
+      "word": "critic",
+      "start": 22.26,
+      "end": 22.58
+    },
+    {
+      "word": "is",
+      "start": 22.58,
+      "end": 22.88
+    },
+    {
+      "word": "he",
+      "start": 22.88,
+      "end": 23.02
+    },
+    {
+      "word": "who",
+      "start": 23.02,
+      "end": 23.22
+    },
+    {
+      "word": "can",
+      "start": 23.22,
+      "end": 23.4
+    },
+    {
+      "word": "translate",
+      "start": 23.4,
+      "end": 23.82
+    },
+    {
+      "word": "into",
+      "start": 23.82,
+      "end": 24.2
+    },
+    {
+      "word": "another",
+      "start": 24.2,
+      "end": 24.48
+    },
+    {
+      "word": "manner",
+      "start": 24.48,
+      "end": 24.88
+    },
+    {
+      "word": "or",
+      "start": 24.88,
+      "end": 25.46
+    },
+    {
+      "word": "a",
+      "start": 25.46,
+      "end": 25.58
+    },
+    {
+      "word": "new",
+      "start": 25.58,
+      "end": 25.74
+    },
+    {
+      "word": "material",
+      "start": 25.74,
+      "end": 26.28
+    },
+    {
+      "word": "his",
+      "start": 26.28,
+      "end": 26.56
+    },
+    {
+      "word": "impression",
+      "start": 26.56,
+      "end": 27.0
+    },
+    {
+      "word": "of",
+      "start": 27.0,
+      "end": 27.2
+    },
+    {
+      "word": "beautiful",
+      "start": 27.2,
+      "end": 27.54
+    },
+    {
+      "word": "things.",
+      "start": 27.54,
+      "end": 28.12
+    },
+    {
+      "word": "The",
+      "start": 29.32,
+      "end": 29.88
+    },
+    {
+      "word": "highest",
+      "start": 29.88,
+      "end": 30.28
+    },
+    {
+      "word": "as",
+      "start": 30.28,
+      "end": 30.74
+    },
+    {
+      "word": "the",
+      "start": 30.74,
+      "end": 30.92
+    },
+    {
+      "word": "lowest",
+      "start": 30.92,
+      "end": 31.18
+    },
+    {
+      "word": "form",
+      "start": 31.18,
+      "end": 31.54
+    },
+    {
+      "word": "of",
+      "start": 31.54,
+      "end": 31.68
+    },
+    {
+      "word": "criticism",
+      "start": 31.68,
+      "end": 32.08
+    },
+    {
+      "word": "is",
+      "start": 32.08,
+      "end": 32.44
+    },
+    {
+      "word": "a",
+      "start": 32.44,
+      "end": 32.54
+    },
+    {
+      "word": "mode",
+      "start": 32.54,
+      "end": 32.8
+    },
+    {
+      "word": "of",
+      "start": 32.8,
+      "end": 32.96
+    },
+    {
+      "word": "autobiography.",
+      "start": 32.96,
+      "end": 34.42
+    },
+    {
+      "word": "Those",
+      "start": 34.48,
+      "end": 35.04
+    },
+    {
+      "word": "who",
+      "start": 35.04,
+      "end": 35.26
+    },
+    {
+      "word": "find",
+      "start": 35.26,
+      "end": 35.54
+    },
+    {
+      "word": "ugly",
+      "start": 35.54,
+      "end": 35.78
+    },
+    {
+      "word": "meanings",
+      "start": 35.78,
+      "end": 36.16
+    },
+    {
+      "word": "in",
+      "start": 36.16,
+      "end": 36.42
+    },
+    {
+      "word": "beautiful",
+      "start": 36.42,
+      "end": 36.68
+    },
+    {
+      "word": "things",
+      "start": 36.68,
+      "end": 37.24
+    },
+    {
+      "word": "are",
+      "start": 37.24,
+      "end": 37.66
+    },
+    {
+      "word": "corrupt",
+      "start": 37.66,
+      "end": 38.0
+    },
+    {
+      "word": "without",
+      "start": 38.0,
+      "end": 38.4
+    },
+    {
+      "word": "being",
+      "start": 38.4,
+      "end": 38.68
+    },
+    {
+      "word": "charming.",
+      "start": 38.68,
+      "end": 39.1
+    },
+    {
+      "word": "This",
+      "start": 39.88,
+      "end": 40.04
+    },
+    {
+      "word": "is",
+      "start": 40.04,
+      "end": 40.18
+    },
+    {
+      "word": "a",
+      "start": 40.18,
+      "end": 40.28
+    },
+    {
+      "word": "fault.",
+      "start": 40.28,
+      "end": 40.56
+    },
+    {
+      "word": "Those",
+      "start": 41.62,
+      "end": 41.78
+    },
+    {
+      "word": "who",
+      "start": 41.78,
+      "end": 42.0
+    },
+    {
+      "word": "find",
+      "start": 42.0,
+      "end": 42.26
+    },
+    {
+      "word": "beautiful",
+      "start": 42.26,
+      "end": 42.68
+    },
+    {
+      "word": "meanings",
+      "start": 42.68,
+      "end": 43.12
+    },
+    {
+      "word": "in",
+      "start": 43.12,
+      "end": 43.38
+    },
+    {
+      "word": "beautiful",
+      "start": 43.38,
+      "end": 43.66
+    },
+    {
+      "word": "things",
+      "start": 43.66,
+      "end": 44.26
+    },
+    {
+      "word": "are",
+      "start": 44.26,
+      "end": 44.74
+    },
+    {
+      "word": "the",
+      "start": 44.74,
+      "end": 44.86
+    },
+    {
+      "word": "cultivated.",
+      "start": 44.86,
+      "end": 45.42
+    },
+    {
+      "word": "For",
+      "start": 46.18,
+      "end": 46.54
+    },
+    {
+      "word": "these",
+      "start": 46.54,
+      "end": 46.8
+    },
+    {
+      "word": "there",
+      "start": 46.8,
+      "end": 47.62
+    },
+    {
+      "word": "is",
+      "start": 47.62,
+      "end": 47.8
+    },
+    {
+      "word": "hope.",
+      "start": 47.8,
+      "end": 48.04
+    },
+    {
+      "word": "They",
+      "start": 48.9,
+      "end": 49.16
+    },
+    {
+      "word": "are",
+      "start": 49.16,
+      "end": 49.3
+    },
+    {
+      "word": "the",
+      "start": 49.3,
+      "end": 49.44
+    },
+    {
+      "word": "elect",
+      "start": 49.44,
+      "end": 49.7
+    },
+    {
+      "word": "to",
+      "start": 49.7,
+      "end": 49.88
+    },
+    {
+      "word": "whom",
+      "start": 49.88,
+      "end": 50.02
+    },
+    {
+      "word": "beautiful",
+      "start": 50.02,
+      "end": 50.42
+    },
+    {
+      "word": "things",
+      "start": 50.42,
+      "end": 50.94
+    },
+    {
+      "word": "mean",
+      "start": 50.94,
+      "end": 51.08
+    },
+    {
+      "word": "only",
+      "start": 51.08,
+      "end": 51.36
+    },
+    {
+      "word": "beauty.",
+      "start": 51.36,
+      "end": 51.74
+    },
+    {
+      "word": "There",
+      "start": 52.52,
+      "end": 52.88
+    },
+    {
+      "word": "is",
+      "start": 52.88,
+      "end": 53.0
+    },
+    {
+      "word": "no",
+      "start": 53.0,
+      "end": 53.14
+    },
+    {
+      "word": "such",
+      "start": 53.14,
+      "end": 53.44
+    },
+    {
+      "word": "thing",
+      "start": 53.44,
+      "end": 53.64
+    },
+    {
+      "word": "as",
+      "start": 53.64,
+      "end": 53.84
+    },
+    {
+      "word": "a",
+      "start": 53.84,
+      "end": 53.92
+    },
+    {
+      "word": "moral",
+      "start": 53.92,
+      "end": 54.24
+    },
+    {
+      "word": "or",
+      "start": 54.24,
+      "end": 54.64
+    },
+    {
+      "word": "an",
+      "start": 54.64,
+      "end": 54.82
+    },
+    {
+      "word": "immoral",
+      "start": 54.82,
+      "end": 55.16
+    },
+    {
+      "word": "book.",
+      "start": 55.16,
+      "end": 55.44
+    },
+    {
+      "word": "Books",
+      "start": 55.44,
+      "end": 56.54
+    },
+    {
+      "word": "are",
+      "start": 56.54,
+      "end": 56.68
+    },
+    {
+      "word": "well",
+      "start": 56.68,
+      "end": 56.84
+    },
+    {
+      "word": "written",
+      "start": 56.84,
+      "end": 57.14
+    },
+    {
+      "word": "or",
+      "start": 57.14,
+      "end": 57.56
+    },
+    {
+      "word": "badly",
+      "start": 57.56,
+      "end": 57.94
+    },
+    {
+      "word": "written.",
+      "start": 57.94,
+      "end": 58.26
+    },
+    {
+      "word": "That",
+      "start": 58.82,
+      "end": 59.06
+    },
+    {
+      "word": "is",
+      "start": 59.06,
+      "end": 59.22
+    },
+    {
+      "word": "all.",
+      "start": 59.22,
+      "end": 59.46
+    }
+  ]
+}
