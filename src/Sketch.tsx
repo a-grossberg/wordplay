@@ -53,10 +53,83 @@ const Sketch = () => {
   const highlightedWordsRef = useRef<Set<number>>(new Set())
   const highlightModeRef = useRef(true) // Always on
   
+  // Focus mode - when user circles highlighted text, show only that text
+  const [focusMode, setFocusMode] = useState(false)
+  const focusModeRef = useRef(false)
+  const focusAnimationProgressRef = useRef(0) // 0-1 for transition animation
+  
+  // Hold-to-focus tracking
+  const holdOnHighlightedStartTimeRef = useRef<number | null>(null)
+  const holdOnHighlightedWordRef = useRef<number | null>(null)
+  
+  // Hold-to-unhighlight tracking (in focus mode)
+  const holdToUnhighlightStartTimeRef = useRef<number | null>(null)
+  const holdToUnhighlightWordRef = useRef<number | null>(null)
+  
+  // Track if audio was playing before focus mode (to resume after)
+  const wasPlayingBeforeFocusRef = useRef(false)
+  
+  // Track if audio was playing before showing saved highlights panel
+  const wasPlayingBeforePanelRef = useRef(false)
+  
+  // Ref for the saved highlights button to detect hover
+  const savedButtonRef = useRef<HTMLButtonElement>(null)
+  
+  // Fly-off animation state (for saving highlights)
+  const flyOffAnimationRef = useRef<{
+    active: boolean;
+    direction: { x: number; y: number };
+    progress: number;
+    savedWordIndices: number[];
+  }>({ active: false, direction: { x: 0, y: 0 }, progress: 0, savedWordIndices: [] })
+  
+  // Saved highlights
+  interface SavedHighlight {
+    id: string;
+    text: string;
+    wordIndices: number[];
+    audioTime: number;
+    timestamp: Date;
+  }
+  const [savedHighlights, setSavedHighlights] = useState<SavedHighlight[]>([])
+  const [showSavedPanel, setShowSavedPanel] = useState(false)
+  const showSavedPanelRef = useRef(false)
+  
+  // Load saved highlights from localStorage on mount
+  useEffect(() => {
+    const stored = localStorage.getItem('wordplay_highlights')
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored)
+        setSavedHighlights(parsed.map((h: any) => ({
+          ...h,
+          timestamp: new Date(h.timestamp)
+        })))
+      } catch (e) {
+        console.error('Error loading saved highlights:', e)
+      }
+    }
+  }, [])
+  
+  // Save highlights to localStorage when they change
+  useEffect(() => {
+    if (savedHighlights.length > 0) {
+      localStorage.setItem('wordplay_highlights', JSON.stringify(savedHighlights))
+    }
+  }, [savedHighlights])
+  
   // Keep refs in sync with state
   useEffect(() => {
     highlightedWordsRef.current = highlightedWords
   }, [highlightedWords])
+  
+  useEffect(() => {
+    focusModeRef.current = focusMode
+  }, [focusMode])
+  
+  useEffect(() => {
+    showSavedPanelRef.current = showSavedPanel
+  }, [showSavedPanel])
 
   // Function to check if we need to scroll and update scroll target
   const checkAndUpdateScroll = (wordBottomY: number) => {
@@ -76,7 +149,7 @@ const Sketch = () => {
       targetScrollOffsetRef.current = scrollOffsetRef.current + scrollNeeded
     }
   }
-
+  
   // Effect to measure positions when words are rendered
   useEffect(() => {
     if (visibleWords.length === 0) return
@@ -344,7 +417,7 @@ const Sketch = () => {
         }
       }
 
-      draw(p: p5, scrollOffset: number = 0, isHighlighted: boolean = false, isHovered: boolean = false) {
+      draw(p: p5, scrollOffset: number = 0, isHighlighted: boolean = false, isHovered: boolean = false, opacity: number = 1) {
         if (this.char === ' ') return
 
         // Calculate draw position with scroll offset
@@ -378,28 +451,28 @@ const Sketch = () => {
         // Draw multiple layers with increasing blur for liquid ink effect
         // Outer glow layer (largest blur)
         ctx.shadowBlur = 25
-        ctx.shadowColor = `${shadowColorBase} 0.15)`
+        ctx.shadowColor = `${shadowColorBase} ${0.15 * opacity})`
         ctx.shadowOffsetX = 0
         ctx.shadowOffsetY = 0
         p.noStroke()
-        p.fill(baseColor.r, baseColor.g, baseColor.b, 80) // Semi-transparent
+        p.fill(baseColor.r, baseColor.g, baseColor.b, 80 * opacity) // Semi-transparent
         p.text(this.char, this.x, drawY)
         
         // Middle layer (medium blur)
         ctx.shadowBlur = 15
-        ctx.shadowColor = `${shadowColorBase} 0.25)`
-        p.fill(baseColor.r, baseColor.g, baseColor.b, 120)
+        ctx.shadowColor = `${shadowColorBase} ${0.25 * opacity})`
+        p.fill(baseColor.r, baseColor.g, baseColor.b, 120 * opacity)
         p.text(this.char, this.x, drawY)
         
         // Inner layer (small blur)
         ctx.shadowBlur = 8
-        ctx.shadowColor = `${shadowColorBase} 0.35)`
-        p.fill(baseColor.r, baseColor.g, baseColor.b, 180)
+        ctx.shadowColor = `${shadowColorBase} ${0.35 * opacity})`
+        p.fill(baseColor.r, baseColor.g, baseColor.b, 180 * opacity)
         p.text(this.char, this.x, drawY)
         
         // Core (no blur, solid)
         ctx.shadowBlur = 0
-        p.fill(baseColor.r, baseColor.g, baseColor.b, 255)
+        p.fill(baseColor.r, baseColor.g, baseColor.b, 255 * opacity)
         p.text(this.char, this.x, drawY)
         
         // Reset shadow
@@ -797,6 +870,9 @@ const Sketch = () => {
       const velocity = getHandVelocity()
       const isMovingFast = velocity.speed > 400 // pixels/second
       const isMovingHorizontally = Math.abs(velocity.vx) > Math.abs(velocity.vy) * 2
+      const isMovingDiagonally = isMovingFast && 
+        Math.abs(velocity.vx) > 200 && 
+        Math.abs(velocity.vy) > 200 // Both directions have significant movement
       
       // Reset pose timing if pose changed
       if (pose !== currentPose) {
@@ -813,6 +889,47 @@ const Sketch = () => {
         holdTypeRef.current = null
         swipeProgressRef.current = 0
         swipeDirectionRef.current = null
+      }
+      
+      // DIAGONAL SWIPE IN FOCUS MODE = SAVE & FLY OFF
+      if (focusModeRef.current && pose === 'palm' && isMovingDiagonally && highlightedWordsRef.current.size > 0) {
+        if (!flyOffAnimationRef.current.active) {
+          // Calculate normalized direction
+          const magnitude = Math.sqrt(velocity.vx * velocity.vx + velocity.vy * velocity.vy)
+          const dirX = velocity.vx / magnitude
+          const dirY = velocity.vy / magnitude
+          
+          // Trigger fly-off animation and save
+          flyOffAnimationRef.current = {
+            active: true,
+            direction: { x: dirX, y: dirY },
+            progress: 0,
+            savedWordIndices: Array.from(highlightedWordsRef.current)
+          }
+          
+          // Get the highlighted words text
+          const highlightedText = Array.from(highlightedWordsRef.current)
+            .sort((a, b) => a - b)
+            .map(idx => wordsRef.current[idx] || '')
+            .join(' ')
+          
+          // Get current audio time
+          const audioTime = audioElementRef.current?.currentTime || 0
+          
+          // Save to highlights
+          const newHighlight: SavedHighlight = {
+            id: `highlight_${Date.now()}`,
+            text: highlightedText,
+            wordIndices: Array.from(highlightedWordsRef.current),
+            audioTime: audioTime,
+            timestamp: new Date()
+          }
+          
+          setSavedHighlights(prev => [...prev, newHighlight])
+          updateHandStatus(`Saved: "${highlightedText.slice(0, 30)}${highlightedText.length > 30 ? '...' : ''}"`)
+          
+          return 'save_highlight'
+        }
       }
       
       // 1. OPEN PALM - Two behaviors:
@@ -857,25 +974,64 @@ const Sketch = () => {
           return null
         }
         
-        // If palm is still, use for play
-        if (!isMovingFast && audio.paused) {
-          const holdRequired = 600
-          holdProgressRef.current = Math.min(1, holdTime / holdRequired)
-          holdTypeRef.current = 'play'
-          swipeProgressRef.current = 0
-          swipeDirectionRef.current = null
-          
-          if (holdTime > holdRequired && now - lastCutoffTimeRef.current > 1500) {
-            audio.play()
-            updateHandStatus('🖐 Palm → Playing!')
-            lastCutoffTimeRef.current = now
+        // If palm is still, check for panel close, focus mode exit, or play
+        if (!isMovingFast) {
+          // Close saved highlights panel if open
+          if (showSavedPanelRef.current && holdTime > 300) {
+            setShowSavedPanel(false)
+            
+            // Resume audio if it was playing before panel opened
+            if (wasPlayingBeforePanelRef.current) {
+              const audio = audioElementRef.current
+              if (audio) {
+                audio.play().catch(err => console.error('Error resuming audio:', err))
+              }
+              wasPlayingBeforePanelRef.current = false
+            }
+            
+            updateHandStatus('🖐 Closed highlights panel')
             resetVisualFeedback()
-            return 'play'
+            return null
           }
-          updateHandStatus(`🖐 Hold to play...`)
-        } else if (!isMovingFast && !audio.paused) {
-          updateHandStatus('🖐 Palm - swipe to seek')
-          resetVisualFeedback()
+          
+          // Exit focus mode if in focus mode
+          if (focusModeRef.current && holdTime > 500) {
+            setFocusMode(false)
+            
+            // Resume audio if it was playing before focus mode
+            if (wasPlayingBeforeFocusRef.current) {
+              const audio = audioElementRef.current
+              if (audio) {
+                audio.play().catch(err => console.error('Error resuming audio:', err))
+              }
+              wasPlayingBeforeFocusRef.current = false
+            }
+            
+            updateHandStatus('🖐 Exited focus mode')
+            resetVisualFeedback()
+            return null
+          }
+          
+          // Otherwise, use for play (when paused)
+          if (audio.paused && !focusModeRef.current) {
+            const holdRequired = 600
+            holdProgressRef.current = Math.min(1, holdTime / holdRequired)
+            holdTypeRef.current = 'play'
+            swipeProgressRef.current = 0
+            swipeDirectionRef.current = null
+            
+            if (holdTime > holdRequired && now - lastCutoffTimeRef.current > 1500) {
+              audio.play()
+              updateHandStatus('🖐 Palm → Playing!')
+              lastCutoffTimeRef.current = now
+              resetVisualFeedback()
+              return 'play'
+            }
+            updateHandStatus(`🖐 Hold to play...`)
+          } else if (!audio.paused && !focusModeRef.current) {
+            updateHandStatus('🖐 Palm - swipe to seek')
+            resetVisualFeedback()
+          }
         }
         
         isSwipeInProgress = false
@@ -934,6 +1090,46 @@ const Sketch = () => {
       return null
     }
 
+    // Check if finger is hovering over the saved highlights button
+    // Works with any hand pose (not just pointing) for easier access
+    const checkHoverOnSavedButton = (handX: number, handY: number) => {
+      const button = savedButtonRef.current
+      if (!button) {
+        console.log('Button ref not found')
+        return false
+      }
+      
+      const rect = button.getBoundingClientRect()
+      const padding = 50 // Extra padding for easier targeting
+      
+      // Debug: log positions occasionally
+      if (Math.random() < 0.05) {
+        console.log('Button rect:', rect, 'Hand:', handX, handY)
+      }
+      
+      if (
+        handX >= rect.left - padding &&
+        handX <= rect.right + padding &&
+        handY >= rect.top - padding &&
+        handY <= rect.bottom + padding
+      ) {
+        // Hovering over saved button - open panel and pause audio
+        if (!showSavedPanelRef.current) {
+          const audio = audioElementRef.current
+          if (audio && !audio.paused) {
+            wasPlayingBeforePanelRef.current = true
+            audio.pause()
+          } else {
+            wasPlayingBeforePanelRef.current = false
+          }
+          setShowSavedPanel(true)
+          updateHandStatus('Viewing saved highlights - palm to close')
+        }
+        return true
+      }
+      return false
+    }
+    
     // Check if hand is hovering over any word for highlighting (only when pointing)
     // Find the closest word to the finger position
     const checkHandHoverOnWords = (handX: number, handY: number, isPointing: boolean) => {
@@ -961,18 +1157,118 @@ const Sketch = () => {
       
       if (closestWord) {
         isHoveringWordRef.current = true
+        const isAlreadyHighlighted = highlightedWordsRef.current.has(closestWord.index)
+        const inFocusMode = focusModeRef.current
+        
         if (hoveredWordIndexRef.current !== closestWord.index) {
           hoveredWordIndexRef.current = closestWord.index
-          setHighlightedWords(prev => {
-            if (prev.has(closestWord!.index)) return prev
-            const newSet = new Set(prev)
-            newSet.add(closestWord!.index)
-            return newSet
-          })
+          // Reset all hold timers when moving to a new word
+          holdOnHighlightedStartTimeRef.current = null
+          holdOnHighlightedWordRef.current = null
+          holdToUnhighlightStartTimeRef.current = null
+          holdToUnhighlightWordRef.current = null
+          
+          // Only auto-highlight in normal mode (not in focus mode)
+          if (!inFocusMode) {
+            setHighlightedWords(prev => {
+              if (prev.has(closestWord!.index)) return prev
+              const newSet = new Set(prev)
+              newSet.add(closestWord!.index)
+              return newSet
+            })
+          }
+        }
+        
+        // In focus mode: allow unhighlighting by holding on highlighted text
+        if (inFocusMode && isAlreadyHighlighted) {
+          const now = Date.now()
+          if (holdToUnhighlightWordRef.current !== closestWord.index) {
+            holdToUnhighlightStartTimeRef.current = now
+            holdToUnhighlightWordRef.current = closestWord.index
+          } else if (holdToUnhighlightStartTimeRef.current) {
+            const holdDuration = now - holdToUnhighlightStartTimeRef.current
+            const holdRequired = 1000 // 1 second to unhighlight
+            
+            if (holdDuration >= holdRequired) {
+              // Unhighlight this word
+              setHighlightedWords(prev => {
+                const newSet = new Set(prev)
+                newSet.delete(closestWord!.index)
+                
+                // If no highlighted words left, exit focus mode
+                if (newSet.size === 0) {
+                  setFocusMode(false)
+                  
+                  // Resume audio if it was playing before focus mode
+                  if (wasPlayingBeforeFocusRef.current) {
+                    const audio = audioElementRef.current
+                    if (audio) {
+                      audio.play().catch(err => console.error('Error resuming audio:', err))
+                    }
+                    wasPlayingBeforeFocusRef.current = false
+                  }
+                  
+                  updateHandStatus('All text unhighlighted - focus mode exited')
+                } else {
+                  updateHandStatus(`Unhighlighted word (${newSet.size} highlighted)`)
+                }
+                
+                return newSet
+              })
+              holdToUnhighlightStartTimeRef.current = null
+              holdToUnhighlightWordRef.current = null
+            } else {
+              const progress = Math.round((holdDuration / holdRequired) * 100)
+              updateHandStatus(`Hold to unhighlight... ${progress}%`)
+            }
+          }
+        }
+        // In normal mode: hold on highlighted text to enter focus mode
+        else if (!inFocusMode && isAlreadyHighlighted) {
+          const now = Date.now()
+          if (holdOnHighlightedWordRef.current !== closestWord.index) {
+            holdOnHighlightedStartTimeRef.current = now
+            holdOnHighlightedWordRef.current = closestWord.index
+          } else if (holdOnHighlightedStartTimeRef.current) {
+            const holdDuration = now - holdOnHighlightedStartTimeRef.current
+            const holdRequired = 1500 // 1.5 seconds
+            
+            if (holdDuration >= holdRequired) {
+              // Trigger focus mode!
+              console.log('Focus mode triggered by hold gesture!')
+              
+              // Pause audio and remember if it was playing
+              const audio = audioElementRef.current
+              if (audio && !audio.paused) {
+                wasPlayingBeforeFocusRef.current = true
+                audio.pause()
+              } else {
+                wasPlayingBeforeFocusRef.current = false
+              }
+              
+              setFocusMode(true)
+              updateHandStatus('Focus mode: Showing highlighted text only')
+              holdOnHighlightedStartTimeRef.current = null
+              holdOnHighlightedWordRef.current = null
+            } else {
+              const progress = Math.round((holdDuration / holdRequired) * 100)
+              updateHandStatus(`Hold on highlighted text... ${progress}%`)
+            }
+          }
+        } else {
+          // Reset timers when not on highlighted text
+          holdOnHighlightedStartTimeRef.current = null
+          holdOnHighlightedWordRef.current = null
+          holdToUnhighlightStartTimeRef.current = null
+          holdToUnhighlightWordRef.current = null
         }
       } else {
         isHoveringWordRef.current = false
         hoveredWordIndexRef.current = null
+        holdOnHighlightedStartTimeRef.current = null
+        holdOnHighlightedWordRef.current = null
+        holdToUnhighlightStartTimeRef.current = null
+        holdToUnhighlightWordRef.current = null
       }
     }
 
@@ -1037,28 +1333,23 @@ const Sketch = () => {
               const screenHeight = sketchRef.current?.height || window.innerHeight
               
               // Map camera coordinates to screen coordinates
-              // X is mirrored, Y is adjusted for comfortable reach
-              // Map camera Y range [0.1, 0.8] to screen Y range [0, height]
-              const cameraYMin = 0.1
-              const cameraYMax = 0.8
-              const normalizedY = (indexTip.y - cameraYMin) / (cameraYMax - cameraYMin)
-              const clampedY = Math.max(0, Math.min(1, normalizedY))
-              
-              // X also needs adjustment - map [0.1, 0.9] to full width
-              const cameraXMin = 0.1
-              const cameraXMax = 0.9
-              const normalizedX = (indexTip.x - cameraXMin) / (cameraXMax - cameraXMin)
-              const clampedX = Math.max(0, Math.min(1, normalizedX))
-              
-              const fingerX = (1 - clampedX) * screenWidth
-              const fingerY = clampedY * screenHeight
+              // Use full camera range [0, 1] to screen range, no clamping
+              // This allows the cursor to reach all parts of the screen
+              const fingerX = (1 - indexTip.x) * screenWidth
+              const fingerY = indexTip.y * screenHeight
               
               // Store finger position for visual indicator
               fingerPosRef.current = { x: fingerX, y: fingerY }
               currentPoseRef.current = gestureResult
               
+              // Always check for button hover (works with any gesture)
+              const isOverButton = checkHoverOnSavedButton(fingerX, fingerY)
+              
+              // Only check word hover when pointing and not over the button
               const isPointing = gestureResult === 'point'
-              checkHandHoverOnWords(fingerX, fingerY, isPointing)
+              if (!isOverButton) {
+                checkHandHoverOnWords(fingerX, fingerY, isPointing)
+              }
             } else {
               handDetected = false
               handPos.x = -1
@@ -1143,6 +1434,13 @@ const Sketch = () => {
         // Get current scroll offset for both update and draw
         const currentScrollOffset = scrollOffsetRef.current
         
+        // Animate focus mode transition
+        if (focusModeRef.current) {
+          focusAnimationProgressRef.current = Math.min(1, focusAnimationProgressRef.current + 0.05)
+        } else {
+          focusAnimationProgressRef.current = Math.max(0, focusAnimationProgressRef.current - 0.05)
+        }
+        
         // Update particles with current scroll offset for hand interaction
         for (let particle of particles) {
           particle.update(p, currentScrollOffset)
@@ -1151,10 +1449,86 @@ const Sketch = () => {
         // Draw particles with scroll offset, highlight state, and hover state
         const hoveredWordIndex = hoveredWordIndexRef.current
         const isHighlightModeOn = highlightModeRef.current
+        const focusProgress = focusAnimationProgressRef.current
+        const flyOff = flyOffAnimationRef.current
+        
+        // Update fly-off animation progress
+        if (flyOff.active) {
+          flyOff.progress += 0.04 // Animation speed
+          
+          // Animation complete
+          if (flyOff.progress >= 1) {
+            flyOff.active = false
+            flyOff.progress = 0
+            // Exit focus mode and clear highlights
+            setFocusMode(false)
+            setHighlightedWords(new Set())
+            
+            // Resume audio if it was playing before focus mode
+            if (wasPlayingBeforeFocusRef.current) {
+              const audio = audioElementRef.current
+              if (audio) {
+                audio.play().catch(err => console.error('Error resuming audio:', err))
+              }
+              wasPlayingBeforeFocusRef.current = false
+            }
+            
+            updateHandStatus('Highlight saved!')
+          }
+        }
+
         for (let particle of particles) {
           const isHighlighted = highlightedWordsRef.current.has(particle.wordIndex)
           const isHovered = isHighlightModeOn && hoveredWordIndex === particle.wordIndex
-          particle.draw(p, currentScrollOffset, isHighlighted, isHovered)
+          const isFlying = flyOff.active && flyOff.savedWordIndices.includes(particle.wordIndex)
+          
+          // Fly-off animation for saved highlights
+          if (isFlying) {
+            // Calculate fly-off position
+            const flyDistance = flyOff.progress * 2000 // Fly 2000px
+            const flyX = particle.x + flyOff.direction.x * flyDistance
+            const flyY = particle.y + flyOff.direction.y * flyDistance - currentScrollOffset
+            
+            // Ease out effect + scale up + fade
+            const easeProgress = 1 - Math.pow(1 - flyOff.progress, 3)
+            const scale = 1 + easeProgress * 0.5 // Scale up slightly
+            const alpha = 1 - easeProgress
+            
+            // Draw flying particle
+            p.push()
+            p.translate(flyX, flyY)
+            p.scale(scale)
+            p.translate(-flyX, -flyY)
+            
+            // Draw with amber color and fading
+            const ctx = p.drawingContext
+            ctx.shadowBlur = 15 + easeProgress * 20
+            ctx.shadowColor = `rgba(212, 140, 58, ${0.5 * alpha})`
+            p.textSize(particle.size)
+            p.textAlign(p.CENTER, p.CENTER)
+            p.fill(212, 140, 58, 255 * alpha)
+            p.text(particle.char, flyX, flyY)
+            ctx.shadowBlur = 0
+            
+            p.pop()
+            continue // Skip normal drawing
+          }
+          
+          // In focus mode, fade out non-highlighted words
+          if (focusProgress > 0) {
+            if (!isHighlighted) {
+              // Fade out non-highlighted words
+              const alpha = 1 - focusProgress
+              if (alpha <= 0) continue // Skip drawing if fully faded
+              particle.draw(p, currentScrollOffset, isHighlighted, isHovered, alpha)
+            } else {
+              // Highlighted words stay fully visible
+              particle.draw(p, currentScrollOffset, isHighlighted, isHovered, 1)
+            }
+          } else {
+            // Normal mode - draw all particles normally
+            particle.draw(p, currentScrollOffset, isHighlighted, isHovered, 1)
+          }
         }
 
         // Visual feedback for gestures - STATIC POSITIONS
@@ -1172,35 +1546,41 @@ const Sketch = () => {
           p.push()
           
           // 1. POINTING - Elegant crosshair at finger position
-          if (currentPose === 'point' && fingerPos.x >= 0) {
+          // Show crosshair when pointing, or subtle indicator for other poses
+          if (fingerPos.x >= 0 && fingerPos.y >= 0) {
+            const isPointingPose = currentPose === 'point'
+            const opacity = isPointingPose ? 1 : 0.3 // Dimmer when not pointing
+            
             // Soft outer glow
             for (let i = 3; i >= 0; i--) {
               p.noFill()
-              p.stroke(212, 140, 58, 30 - i * 5)
+              p.stroke(212, 140, 58, (30 - i * 5) * opacity)
               p.strokeWeight(8 - i * 2)
               p.circle(fingerPos.x, fingerPos.y, 35 + i * 8)
             }
             
             // Main ring
-            p.stroke(212, 140, 58, 180)
+            p.stroke(212, 140, 58, 180 * opacity)
             p.strokeWeight(2.5)
             p.circle(fingerPos.x, fingerPos.y, 28)
             
-            // Elegant crosshair lines
-            p.stroke(212, 140, 58, 120)
-            p.strokeWeight(1.5)
-            const gap = 18
-            const len = 14
-            p.line(fingerPos.x - gap - len, fingerPos.y, fingerPos.x - gap, fingerPos.y)
-            p.line(fingerPos.x + gap, fingerPos.y, fingerPos.x + gap + len, fingerPos.y)
-            p.line(fingerPos.x, fingerPos.y - gap - len, fingerPos.x, fingerPos.y - gap)
-            p.line(fingerPos.x, fingerPos.y + gap, fingerPos.x, fingerPos.y + gap + len)
+            if (isPointingPose) {
+              // Elegant crosshair lines (only when pointing)
+              p.stroke(212, 140, 58, 120)
+              p.strokeWeight(1.5)
+              const gap = 18
+              const len = 14
+              p.line(fingerPos.x - gap - len, fingerPos.y, fingerPos.x - gap, fingerPos.y)
+              p.line(fingerPos.x + gap, fingerPos.y, fingerPos.x + gap + len, fingerPos.y)
+              p.line(fingerPos.x, fingerPos.y - gap - len, fingerPos.x, fingerPos.y - gap)
+              p.line(fingerPos.x, fingerPos.y + gap, fingerPos.x, fingerPos.y + gap + len)
+            }
             
             // Center dot with glow
-            p.fill(212, 140, 58, 80)
+            p.fill(212, 140, 58, 80 * opacity)
             p.noStroke()
             p.circle(fingerPos.x, fingerPos.y, 12)
-            p.fill(212, 140, 58, 255)
+            p.fill(212, 140, 58, 255 * opacity)
             p.circle(fingerPos.x, fingerPos.y, 5)
           }
           
@@ -1340,6 +1720,31 @@ const Sketch = () => {
       }
 
       p.keyPressed = () => {
+        if (p.key === 'Escape' || p.key === 'Esc') {
+          if (focusModeRef.current) {
+            setFocusMode(false)
+            
+            // Resume audio if it was playing before focus mode
+            if (wasPlayingBeforeFocusRef.current) {
+              const audio = audioElementRef.current
+              if (audio) {
+                audio.play().catch(err => console.error('Error resuming audio:', err))
+              }
+              wasPlayingBeforeFocusRef.current = false
+            }
+            
+            updateHandStatus('Focus mode: Exited')
+          }
+        }
+        if (p.key === 'f' || p.key === 'F') {
+          // Test focus mode toggle
+          if (highlightedWordsRef.current.size > 0) {
+            setFocusMode(!focusModeRef.current)
+            updateHandStatus(focusModeRef.current ? 'Focus mode: OFF' : 'Focus mode: ON')
+          } else {
+            updateHandStatus('Highlight some text first (point at words)')
+          }
+        }
         if (p.key === 'h' || p.key === 'H') {
           useHandTracking = !useHandTracking
           updateHandStatus(useHandTracking ? 'Hand tracking: ON' : 'Hand tracking: OFF (using mouse)')
@@ -1483,7 +1888,92 @@ const Sketch = () => {
         <span><span className="gesture-icon">○</span> Palm (swipe): Seek ←→</span>
         <span><span className="gesture-icon">●</span> Fist (hold still): Pause</span>
         <span><span className="gesture-icon">→</span> Point: Highlight text</span>
+        <span><span className="gesture-icon">↗</span> Diagonal swipe: Save</span>
       </div>
+      
+      {/* Saved highlights button */}
+      <button 
+        ref={savedButtonRef}
+        className="saved-highlights-button"
+        onClick={() => {
+          if (!showSavedPanelRef.current) {
+            // Opening panel - pause audio if playing
+            const audio = audioElementRef.current
+            if (audio && !audio.paused) {
+              wasPlayingBeforePanelRef.current = true
+              audio.pause()
+            } else {
+              wasPlayingBeforePanelRef.current = false
+            }
+            setShowSavedPanel(true)
+          } else {
+            // Closing panel - resume audio if it was playing
+            if (wasPlayingBeforePanelRef.current) {
+              const audio = audioElementRef.current
+              if (audio) {
+                audio.play().catch(err => console.error('Error resuming audio:', err))
+              }
+              wasPlayingBeforePanelRef.current = false
+            }
+            setShowSavedPanel(false)
+          }
+        }}
+      >
+        ★ {savedHighlights.length}
+      </button>
+      
+      {/* Saved highlights panel */}
+      {showSavedPanel && (
+        <div className="saved-highlights-panel">
+          <div className="saved-highlights-header">
+            <h3>Saved Highlights</h3>
+            <button onClick={() => setShowSavedPanel(false)}>×</button>
+          </div>
+          <div className="saved-highlights-list">
+            {savedHighlights.length === 0 ? (
+              <div className="no-highlights">
+                No saved highlights yet.<br/>
+                <small>In focus mode, swipe diagonally to save highlighted text.</small>
+              </div>
+            ) : (
+              savedHighlights.map((highlight) => (
+                <div key={highlight.id} className="saved-highlight-item">
+                  <div className="highlight-text">"{highlight.text}"</div>
+                  <div className="highlight-meta">
+                    <span className="highlight-time">
+                      {Math.floor(highlight.audioTime / 60)}:{String(Math.floor(highlight.audioTime % 60)).padStart(2, '0')}
+                    </span>
+                    <span className="highlight-date">
+                      {highlight.timestamp.toLocaleDateString()}
+                    </span>
+                    <button 
+                      className="highlight-delete"
+                      onClick={() => {
+                        setSavedHighlights(prev => prev.filter(h => h.id !== highlight.id))
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+          {savedHighlights.length > 0 && (
+            <button 
+              className="clear-all-button"
+              onClick={() => {
+                if (window.confirm('Clear all saved highlights?')) {
+                  setSavedHighlights([])
+                  localStorage.removeItem('wordplay_highlights')
+                }
+              }}
+            >
+              Clear All
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }
