@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import p5 from 'p5'
-import './Sketch.css'
+import './TextMode.css'
 
 // TypeScript types
 interface HandPos {
@@ -10,7 +10,7 @@ interface HandPos {
 
 // Removed unused interface - ASCIIParticle is defined as a class below
 
-const Sketch = () => {
+const TextMode = () => {
   const containerRef = useRef<HTMLDivElement>(null)
   const sketchRef = useRef<p5 | null>(null)
   const hiddenTextRef = useRef<HTMLDivElement>(null)
@@ -36,6 +36,9 @@ const Sketch = () => {
   const holdTypeRef = useRef<'play' | 'pause' | null>(null)
   const swipeProgressRef = useRef(0) // Swipe distance in pixels
   const swipeDirectionRef = useRef<'left' | 'right' | null>(null)
+  const visualFeedbackFadeOutTimeRef = useRef<number | null>(null) // Time when visual should start fading
+  const visualOpacityRef = useRef(1) // Current opacity of visual feedback
+  const gradientExpansionRef = useRef<{ wordIndices: number[]; progress: number }>({ wordIndices: [], progress: 0 }) // Gradient expansion for hovered highlighted words (entire group)
   
   // Hand gesture state for controls
   const audioElementRef = useRef<HTMLAudioElement | null>(null)
@@ -94,6 +97,7 @@ const Sketch = () => {
   const [savedHighlights, setSavedHighlights] = useState<SavedHighlight[]>([])
   const [showSavedPanel, setShowSavedPanel] = useState(false)
   const showSavedPanelRef = useRef(false)
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false)
   
   // Load saved highlights from localStorage on mount
   useEffect(() => {
@@ -240,7 +244,7 @@ const Sketch = () => {
     if (!containerRef.current) return
 
     // Configuration
-    const PARTICLE_SIZE = 36 // Bigger text, but still made of small glowing particles
+    const PARTICLE_SIZE = 54 // Bigger text, but still made of small glowing particles
 
     // State variables
     let hands: any = null
@@ -417,7 +421,7 @@ const Sketch = () => {
         }
       }
 
-      draw(p: p5, scrollOffset: number = 0, isHighlighted: boolean = false, isHovered: boolean = false, opacity: number = 1) {
+      draw(p: p5, scrollOffset: number = 0, opacity: number = 1) {
         if (this.char === ' ') return
 
         // Calculate draw position with scroll offset
@@ -434,19 +438,9 @@ const Sketch = () => {
         // Liquid ink effect: multiple blur layers for blob-like appearance
         const ctx = p.drawingContext
         
-        // Choose colors based on highlight and hover state
-        // Highlighted: warm amber/gold color
-        // Hovered: lighter amber color (preview before clicking)
-        let baseColor = { r: 0, g: 0, b: 0 }
-        let shadowColorBase = 'rgba(0, 0, 0,'
-        
-        if (isHighlighted) {
-          baseColor = { r: 212, g: 140, b: 58 }
-          shadowColorBase = 'rgba(212, 140, 58,'
-        } else if (isHovered) {
-          baseColor = { r: 230, g: 180, b: 100 }
-          shadowColorBase = 'rgba(230, 180, 100,'
-        }
+        // Always use black text - highlighting shows as underline, not color change
+        const baseColor = { r: 0, g: 0, b: 0 }
+        const shadowColorBase = 'rgba(0, 0, 0,'
         
         // Draw multiple layers with increasing blur for liquid ink effect
         // Outer glow layer (largest blur)
@@ -473,6 +467,51 @@ const Sketch = () => {
         // Core (no blur, solid)
         ctx.shadowBlur = 0
         p.fill(baseColor.r, baseColor.g, baseColor.b, 255 * opacity)
+        p.text(this.char, this.x, drawY)
+        
+        // Reset shadow
+        ctx.shadowBlur = 0
+        ctx.shadowColor = 'transparent'
+      }
+
+      drawWithColor(p: p5, scrollOffset: number = 0, opacity: number = 1, r: number, g: number, b: number) {
+        if (this.char === ' ') return
+
+        // Calculate draw position with scroll offset
+        const drawY = this.y - scrollOffset
+        
+        // Skip drawing if particle is way off screen (optimization)
+        if (drawY < -100 || drawY > p.height + 100) return
+
+        // Ensure text settings match exactly how we positioned particles
+        p.textSize(this.size)
+        p.textAlign(p.CENTER, p.CENTER)
+        
+        // Liquid ink effect with custom color
+        const ctx = p.drawingContext
+        const shadowColorBase = `rgba(${r}, ${g}, ${b},`
+        
+        // Draw multiple layers with increasing blur for liquid ink effect
+        ctx.shadowBlur = 25
+        ctx.shadowColor = `${shadowColorBase} ${0.15 * opacity})`
+        ctx.shadowOffsetX = 0
+        ctx.shadowOffsetY = 0
+        p.noStroke()
+        p.fill(r, g, b, 80 * opacity)
+        p.text(this.char, this.x, drawY)
+        
+        ctx.shadowBlur = 15
+        ctx.shadowColor = `${shadowColorBase} ${0.25 * opacity})`
+        p.fill(r, g, b, 120 * opacity)
+        p.text(this.char, this.x, drawY)
+        
+        ctx.shadowBlur = 8
+        ctx.shadowColor = `${shadowColorBase} ${0.35 * opacity})`
+        p.fill(r, g, b, 180 * opacity)
+        p.text(this.char, this.x, drawY)
+        
+        ctx.shadowBlur = 0
+        p.fill(r, g, b, 255 * opacity)
         p.text(this.char, this.x, drawY)
         
         // Reset shadow
@@ -523,10 +562,15 @@ const Sketch = () => {
       hiddenTextContainer.style.fontSize = `${PARTICLE_SIZE}px`
       hiddenTextContainer.style.lineHeight = `${PARTICLE_SIZE * 1.5}px`
       
+      // Set Montserrat font to match p5.js canvas
+      hiddenTextContainer.style.fontFamily = "'Montserrat', sans-serif"
+      
       // Set up margins to match canvas layout
       const videoWidth = 200
       const videoRight = 20
-      const sideMargin = Math.max(50, videoWidth + videoRight + 20)
+      const gesturePanelWidth = 200
+      const rightMargin = Math.max(videoWidth, gesturePanelWidth) + videoRight + 40 // Extra space for comfort
+      const sideMargin = Math.max(50, rightMargin)
       hiddenTextContainer.style.paddingLeft = `${sideMargin}px`
       hiddenTextContainer.style.paddingRight = `${sideMargin}px`
       hiddenTextContainer.style.paddingTop = '80px'
@@ -601,6 +645,17 @@ const Sketch = () => {
       
       // Store in ref for gesture control
       audioElementRef.current = audioElement
+      
+      // Track audio playback state for header visibility
+      audioElement.addEventListener('play', () => {
+        setIsAudioPlaying(true)
+      })
+      audioElement.addEventListener('pause', () => {
+        setIsAudioPlaying(false)
+      })
+      audioElement.addEventListener('ended', () => {
+        setIsAudioPlaying(false)
+      })
       
       // Try to load transcription from JSON file first
       console.log('Attempting to load transcription from file...')
@@ -789,32 +844,48 @@ const Sketch = () => {
       
       // Check if each finger is extended using multiple joints for reliability
       // Finger is extended if tip is significantly above PIP AND PIP is above MCP
-      const indexExtended = (indexTip.y < indexPip.y - 0.02) && (indexPip.y < indexMcp.y)
-      const middleExtended = (middleTip.y < middlePip.y - 0.02) && (middlePip.y < middleMcp.y)
-      const ringExtended = (ringTip.y < ringPip.y - 0.02) && (ringPip.y < ringMcp.y)
-      const pinkyExtended = (pinkyTip.y < pinkyPip.y - 0.02) && (pinkyPip.y < pinkyMcp.y)
+      // Use stricter thresholds for better distinction
+      const indexExtended = (indexTip.y < indexPip.y - 0.03) && (indexPip.y < indexMcp.y - 0.01)
+      const middleExtended = (middleTip.y < middlePip.y - 0.03) && (middlePip.y < middleMcp.y - 0.01)
+      const ringExtended = (ringTip.y < ringPip.y - 0.03) && (ringPip.y < ringMcp.y - 0.01)
+      const pinkyExtended = (pinkyTip.y < pinkyPip.y - 0.03) && (pinkyPip.y < pinkyMcp.y - 0.01)
       
       // For fist detection, check if fingers are curled (tip is BELOW pip)
-      const indexCurled = indexTip.y > indexPip.y + 0.02
-      const middleCurled = middleTip.y > middlePip.y + 0.02
-      const ringCurled = ringTip.y > ringPip.y + 0.02
-      const pinkyCurled = pinkyTip.y > pinkyPip.y + 0.02
+      // Use stricter thresholds - fingers must be clearly curled
+      const indexCurled = indexTip.y > indexPip.y + 0.04
+      const middleCurled = middleTip.y > middlePip.y + 0.04
+      const ringCurled = ringTip.y > ringPip.y + 0.04
+      const pinkyCurled = pinkyTip.y > pinkyPip.y + 0.04
+      
+      // Check index finger extension strength (how clearly extended it is)
+      const indexExtensionStrength = indexPip.y - indexTip.y
+      const isIndexStronglyExtended = indexExtensionStrength > 0.05
       
       const extendedCount = [indexExtended, middleExtended, ringExtended, pinkyExtended].filter(Boolean).length
       const curledCount = [indexCurled, middleCurled, ringCurled, pinkyCurled].filter(Boolean).length
       
-      // CLOSED FIST: All fingers curled (more strict detection)
-      if (curledCount >= 3 && !indexExtended) {
+      // PRIORITY 1: POINT - If index is clearly extended, prioritize pointing over fist
+      // This prevents accidental pause when highlighting
+      if (isIndexStronglyExtended && indexExtended) {
+        // If index is strongly extended and others are not extended, it's a point
+        if (!middleExtended && !ringExtended && !pinkyExtended) {
+          return 'point'
+        }
+      }
+      
+      // PRIORITY 2: CLOSED FIST - All fingers must be clearly curled (stricter)
+      // Require at least 4 out of 4 fingers to be curled, and index must NOT be extended
+      if (curledCount >= 4 && !indexExtended && !isIndexStronglyExtended) {
         return 'fist'
       }
       
-      // OPEN PALM: 4+ fingers extended
+      // PRIORITY 3: OPEN PALM - 4+ fingers extended
       if (extendedCount >= 4) {
         return 'palm'
       }
       
-      // POINT: ONLY index extended, others must be curled
-      if (indexExtended && !middleExtended && !ringExtended && !pinkyExtended && curledCount >= 2) {
+      // PRIORITY 4: POINT (fallback) - Index extended, others not extended
+      if (indexExtended && !middleExtended && !ringExtended && !pinkyExtended) {
         return 'point'
       }
       
@@ -831,6 +902,7 @@ const Sketch = () => {
     let poseStartTime = 0
     let isSwipeInProgress = false
     let swipeStartX = 0
+    let poseHistory: Array<{ pose: string | null; time: number }> = [] // Track recent poses to prevent false positives
     
     // Calculate hand movement velocity
     const getHandVelocity = () => {
@@ -879,9 +951,18 @@ const Sketch = () => {
         currentPose = pose
         poseStartTime = now
         isSwipeInProgress = false
+        
+        // Track pose history (keep last 2 seconds)
+        poseHistory.push({ pose, time: now })
+        poseHistory = poseHistory.filter(entry => now - entry.time < 2000)
       }
       
       const holdTime = now - poseStartTime
+      
+      // Check if user was recently pointing (within last 500ms) - indicates highlighting, not pausing
+      const wasRecentlyPointing = poseHistory.some(entry => 
+        entry.pose === 'point' && (now - entry.time) < 500
+      )
       
       // Reset visual feedback when not in a gesture
       const resetVisualFeedback = () => {
@@ -889,6 +970,8 @@ const Sketch = () => {
         holdTypeRef.current = null
         swipeProgressRef.current = 0
         swipeDirectionRef.current = null
+        visualOpacityRef.current = 1
+        visualFeedbackFadeOutTimeRef.current = null
       }
       
       // DIAGONAL SWIPE IN FOCUS MODE = SAVE & FLY OFF
@@ -1019,18 +1102,31 @@ const Sketch = () => {
             holdTypeRef.current = 'play'
             swipeProgressRef.current = 0
             swipeDirectionRef.current = null
+            visualOpacityRef.current = 1 // Full opacity during hold
             
             if (holdTime > holdRequired && now - lastCutoffTimeRef.current > 1500) {
               audio.play()
               updateHandStatus('🖐 Palm → Playing!')
               lastCutoffTimeRef.current = now
-              resetVisualFeedback()
+              // Set fade-out time to show visual briefly after play (same as pause)
+              visualFeedbackFadeOutTimeRef.current = now + 800 // Show for 800ms after play
               return 'play'
             }
             updateHandStatus(`🖐 Hold to play...`)
           } else if (!audio.paused && !focusModeRef.current) {
-            updateHandStatus('🖐 Palm - swipe to seek')
-            resetVisualFeedback()
+            // Audio is playing - show play icon if within fade-out window
+            if (visualFeedbackFadeOutTimeRef.current && now < visualFeedbackFadeOutTimeRef.current) {
+              holdTypeRef.current = 'play'
+              holdProgressRef.current = 1 // Full circle
+              // Calculate fade-out opacity
+              const timeLeft = visualFeedbackFadeOutTimeRef.current - now
+              visualOpacityRef.current = Math.min(1, timeLeft / 800) // Fade over 800ms
+            } else {
+              visualFeedbackFadeOutTimeRef.current = null
+              visualOpacityRef.current = 1
+              updateHandStatus('🖐 Palm - swipe to seek')
+              resetVisualFeedback()
+            }
           }
         }
         
@@ -1039,34 +1135,62 @@ const Sketch = () => {
       }
       
       // 2. CLOSED FIST held STILL for 500ms = PAUSE (only when playing)
-      if (pose === 'fist' && !audio.paused) {
-        // Only trigger if hand is relatively still
-        if (!isMovingFast) {
-          const holdRequired = 600
-          holdProgressRef.current = Math.min(1, holdTime / holdRequired)
-          holdTypeRef.current = 'pause'
-          swipeProgressRef.current = 0
-          swipeDirectionRef.current = null
-          
-          if (holdTime > holdRequired && now - lastCutoffTimeRef.current > 1500) {
-            audio.pause()
-            updateHandStatus('✊ Fist → Paused!')
-            lastCutoffTimeRef.current = now
+      if (pose === 'fist') {
+        if (!audio.paused) {
+          // Prevent pause if user was recently pointing (they're highlighting, not pausing)
+          if (wasRecentlyPointing) {
+            // User was just pointing - don't trigger pause, reset timer
+            poseStartTime = now
             resetVisualFeedback()
-            return 'pause'
+            return null
           }
-          updateHandStatus(`✊ Hold to pause...`)
+          
+          // Only trigger if hand is relatively still
+          if (!isMovingFast) {
+            const holdRequired = 600
+            holdProgressRef.current = Math.min(1, holdTime / holdRequired)
+            holdTypeRef.current = 'pause'
+            swipeProgressRef.current = 0
+            swipeDirectionRef.current = null
+            visualOpacityRef.current = 1 // Full opacity during hold
+            
+            if (holdTime > holdRequired && now - lastCutoffTimeRef.current > 1500) {
+              audio.pause()
+              updateHandStatus('✊ Fist → Paused!')
+              lastCutoffTimeRef.current = now
+              // Set fade-out time to show visual briefly after pause
+              visualFeedbackFadeOutTimeRef.current = now + 800 // Show for 800ms after pause
+              return 'pause'
+            }
+            updateHandStatus(`✊ Hold to pause...`)
+          } else {
+            // Moving too fast, reset timer
+            poseStartTime = now
+            resetVisualFeedback()
+            updateHandStatus('✊ Hold still to pause')
+          }
         } else {
-          // Moving too fast, reset timer
-          poseStartTime = now
-          resetVisualFeedback()
-          updateHandStatus('✊ Hold still to pause')
+          // Audio is paused - show pause icon if within fade-out window
+          if (visualFeedbackFadeOutTimeRef.current && now < visualFeedbackFadeOutTimeRef.current) {
+            holdTypeRef.current = 'pause'
+            holdProgressRef.current = 1 // Full circle
+            // Calculate fade-out opacity
+            const timeLeft = visualFeedbackFadeOutTimeRef.current - now
+            visualOpacityRef.current = Math.min(1, timeLeft / 800) // Fade over 800ms
+          } else {
+            visualFeedbackFadeOutTimeRef.current = null
+            visualOpacityRef.current = 1
+            resetVisualFeedback()
+          }
         }
         return null
       }
       
-      // Reset visual feedback for other poses
-      resetVisualFeedback()
+      // Reset visual feedback for other poses (unless within fade-out window)
+      if (!visualFeedbackFadeOutTimeRef.current || now >= visualFeedbackFadeOutTimeRef.current) {
+        resetVisualFeedback()
+        visualFeedbackFadeOutTimeRef.current = null
+      }
       
       // 3. POINT = HIGHLIGHT (handled separately in main callback)
       if (pose === 'point') {
@@ -1131,11 +1255,45 @@ const Sketch = () => {
     }
     
     // Check if hand is hovering over any word for highlighting (only when pointing)
+    // Helper function to find consecutive highlighted words containing a given word index
+    const findConsecutiveHighlightedGroup = (wordIndex: number): number[] => {
+      const highlighted = highlightedWordsRef.current
+      if (!highlighted.has(wordIndex)) return []
+      
+      const allIndices = Array.from(highlighted).sort((a, b) => a - b)
+      const groups: number[][] = []
+      let currentGroup: number[] = []
+      
+      for (let i = 0; i < allIndices.length; i++) {
+        if (currentGroup.length === 0 || allIndices[i] === currentGroup[currentGroup.length - 1] + 1) {
+          currentGroup.push(allIndices[i])
+        } else {
+          if (currentGroup.length > 0) {
+            groups.push(currentGroup)
+          }
+          currentGroup = [allIndices[i]]
+        }
+      }
+      if (currentGroup.length > 0) {
+        groups.push(currentGroup)
+      }
+      
+      // Find the group containing the wordIndex
+      for (const group of groups) {
+        if (group.includes(wordIndex)) {
+          return group
+        }
+      }
+      
+      return [wordIndex] // Fallback: just the single word
+    }
+    
     // Find the closest word to the finger position
     const checkHandHoverOnWords = (handX: number, handY: number, isPointing: boolean) => {
       if (!isPointing) {
         isHoveringWordRef.current = false
         hoveredWordIndexRef.current = null
+        gradientExpansionRef.current = { wordIndices: [], progress: 0 }
         return
       }
       
@@ -1168,7 +1326,19 @@ const Sketch = () => {
           holdToUnhighlightStartTimeRef.current = null
           holdToUnhighlightWordRef.current = null
           
-          // Only auto-highlight in normal mode (not in focus mode)
+          // Reset gradient expansion when moving to a new word
+          // Only allow gradient expansion if word was ALREADY highlighted before we started hovering
+          const wasAlreadyHighlighted = isAlreadyHighlighted
+          if (wasAlreadyHighlighted && !inFocusMode) {
+            // Word was already highlighted - find the entire group and allow gradient expansion
+            const wordGroup = findConsecutiveHighlightedGroup(closestWord.index)
+            gradientExpansionRef.current = { wordIndices: wordGroup, progress: 0 }
+          } else {
+            // Word was not highlighted - reset expansion (first hover)
+            gradientExpansionRef.current = { wordIndices: [], progress: 0 }
+          }
+          
+          // Auto-highlight on hover (shows as underline, not color change)
           if (!inFocusMode) {
             setHighlightedWords(prev => {
               if (prev.has(closestWord!.index)) return prev
@@ -1176,6 +1346,21 @@ const Sketch = () => {
               newSet.add(closestWord!.index)
               return newSet
             })
+          }
+        }
+        
+        // Track gradient expansion for already highlighted words (second hover)
+        // Only expand if the word was already highlighted when we started hovering
+        if (isAlreadyHighlighted && !inFocusMode && gradientExpansionRef.current.wordIndices.includes(closestWord.index)) {
+          // Animate expansion progress (0 to 1)
+          gradientExpansionRef.current.progress = Math.min(1, gradientExpansionRef.current.progress + 0.05)
+        } else {
+          // Reset expansion when not hovering over highlighted word
+          if (gradientExpansionRef.current.wordIndices.includes(closestWord.index)) {
+            gradientExpansionRef.current.progress = Math.max(0, gradientExpansionRef.current.progress - 0.1)
+            if (gradientExpansionRef.current.progress <= 0) {
+              gradientExpansionRef.current = { wordIndices: [], progress: 0 }
+            }
           }
         }
         
@@ -1265,6 +1450,7 @@ const Sketch = () => {
       } else {
         isHoveringWordRef.current = false
         hoveredWordIndexRef.current = null
+        gradientExpansionRef.current = { wordIndices: [], progress: 0 }
         holdOnHighlightedStartTimeRef.current = null
         holdOnHighlightedWordRef.current = null
         holdToUnhighlightStartTimeRef.current = null
@@ -1360,6 +1546,7 @@ const Sketch = () => {
               handDetectedRef.current = false
               isHoveringWordRef.current = false
               hoveredWordIndexRef.current = null
+              gradientExpansionRef.current = { wordIndices: [], progress: 0 }
               
               updateHandStatus('Hand: Not detected')
             }
@@ -1402,6 +1589,12 @@ const Sketch = () => {
       p.setup = () => {
         p.createCanvas(p.windowWidth, p.windowHeight)
         
+        // Set background color immediately
+        p.background(213, 215, 206, 255) // rgba(213, 215, 206)
+        
+        // Set Montserrat font for particle text
+        p.textFont('Montserrat')
+        
         // Set up the hidden text container to match canvas
         setupTextContainer(p)
 
@@ -1413,8 +1606,8 @@ const Sketch = () => {
       }
 
       p.draw = () => {
-        // Pure white background
-        p.background(255, 255, 255, 255)
+        // Background color
+        p.background(213, 215, 206, 255) // rgba(213, 215, 206)
 
         // Smooth scroll animation - lerp toward target offset
         const scrollSpeed = 0.08 // Controls how smooth/slow the scroll is (lower = smoother)
@@ -1465,21 +1658,77 @@ const Sketch = () => {
             setHighlightedWords(new Set())
             
             // Resume audio if it was playing before focus mode
-            if (wasPlayingBeforeFocusRef.current) {
-              const audio = audioElementRef.current
-              if (audio) {
-                audio.play().catch(err => console.error('Error resuming audio:', err))
-              }
-              wasPlayingBeforeFocusRef.current = false
+            // Audio position is preserved automatically when pausing/playing
+            const shouldResume = wasPlayingBeforeFocusRef.current
+            wasPlayingBeforeFocusRef.current = false
+            
+            if (shouldResume) {
+              // Use setTimeout to ensure state updates are complete before resuming
+              setTimeout(() => {
+                const audio = audioElementRef.current
+                if (audio) {
+                  // Ensure audio resumes from where it stopped
+                  audio.play().then(() => {
+                    console.log('Audio resumed after saving highlight')
+                  }).catch(err => {
+                    console.error('Error resuming audio after save:', err)
+                  })
+                }
+              }, 50)
             }
             
             updateHandStatus('Highlight saved!')
           }
         }
 
+        // Draw gradient fills for hovered highlighted words (before particles so they appear behind text)
+        if (gradientExpansionRef.current.wordIndices.length > 0 && gradientExpansionRef.current.progress > 0) {
+          const hoveredWordIndices = gradientExpansionRef.current.wordIndices
+          const expansionProgress = gradientExpansionRef.current.progress
+          
+          // Find particles for all words in the group (including spaces between words)
+          const groupParticles = particles.filter(p => 
+            hoveredWordIndices.includes(p.wordIndex) &&
+            (!flyOff.active || !flyOff.savedWordIndices.includes(p.wordIndex))
+          )
+          
+          if (groupParticles.length > 0) {
+            // Calculate bounding box for the entire group
+            let leftX = Infinity
+            let rightX = -Infinity
+            let wordY = 0
+            const textSize = groupParticles.find(p => p.char !== ' ')?.size || 54
+            
+            for (const part of groupParticles) {
+              const drawY = part.y - currentScrollOffset
+              const charWidth = part.size * 0.6
+              leftX = Math.min(leftX, part.x - charWidth / 2)
+              rightX = Math.max(rightX, part.x + charWidth / 2)
+              if (wordY === 0 && part.char !== ' ') wordY = drawY // Use Y from first non-space particle
+            }
+            
+            if (leftX !== Infinity && rightX !== -Infinity && wordY > 0) {
+              const underlineY = wordY + textSize * 0.4
+              // Calculate the full height from underline to top of text
+              const textTop = wordY - textSize * 0.7  // Higher top to cover ascenders
+              const fullHeight = underlineY - textTop  // Height from underline to top
+              const fillHeight = fullHeight * expansionProgress
+              const fillY = underlineY - fillHeight  // Start from underline and expand upward
+              
+              // Draw gradient fill - gradient goes from underline (bottom) to top
+              const ctx = p.drawingContext as CanvasRenderingContext2D
+              const fillGradient = ctx.createLinearGradient(leftX, underlineY, rightX, textTop)
+              fillGradient.addColorStop(0, 'rgba(255, 107, 107, 1)') // Red at underline
+              fillGradient.addColorStop(1, 'rgba(255, 165, 0, 1)')   // Orange at top
+              
+              ctx.fillStyle = fillGradient
+              ctx.fillRect(leftX, fillY, rightX - leftX, fillHeight)
+            }
+          }
+        }
+
         for (let particle of particles) {
           const isHighlighted = highlightedWordsRef.current.has(particle.wordIndex)
-          const isHovered = isHighlightModeOn && hoveredWordIndex === particle.wordIndex
           const isFlying = flyOff.active && flyOff.savedWordIndices.includes(particle.wordIndex)
           
           // Fly-off animation for saved highlights
@@ -1500,13 +1749,13 @@ const Sketch = () => {
             p.scale(scale)
             p.translate(-flyX, -flyY)
             
-            // Draw with amber color and fading
+            // Draw with black color and fading (keep original color, don't change to amber)
             const ctx = p.drawingContext
             ctx.shadowBlur = 15 + easeProgress * 20
-            ctx.shadowColor = `rgba(212, 140, 58, ${0.5 * alpha})`
+            ctx.shadowColor = `rgba(0, 0, 0, ${0.5 * alpha})`
             p.textSize(particle.size)
             p.textAlign(p.CENTER, p.CENTER)
-            p.fill(212, 140, 58, 255 * alpha)
+            p.fill(0, 0, 0, 255 * alpha) // Keep black color, just fade out
             p.text(particle.char, flyX, flyY)
             ctx.shadowBlur = 0
             
@@ -1514,20 +1763,174 @@ const Sketch = () => {
             continue // Skip normal drawing
           }
           
+          // Check if this particle's word has gradient expansion active
+          const hasGradientExpansion = gradientExpansionRef.current.wordIndices.includes(particle.wordIndex) && 
+                                      gradientExpansionRef.current.progress > 0
+          
           // In focus mode, fade out non-highlighted words
           if (focusProgress > 0) {
             if (!isHighlighted) {
               // Fade out non-highlighted words
               const alpha = 1 - focusProgress
               if (alpha <= 0) continue // Skip drawing if fully faded
-              particle.draw(p, currentScrollOffset, isHighlighted, isHovered, alpha)
+              // Draw with white color if gradient expansion is active
+              if (hasGradientExpansion) {
+                particle.drawWithColor(p, currentScrollOffset, alpha, 255, 255, 255)
+              } else {
+                particle.draw(p, currentScrollOffset, alpha)
+              }
             } else {
               // Highlighted words stay fully visible
-              particle.draw(p, currentScrollOffset, isHighlighted, isHovered, 1)
+              // Draw with white color if gradient expansion is active
+              if (hasGradientExpansion) {
+                particle.drawWithColor(p, currentScrollOffset, 1, 255, 255, 255)
+              } else {
+                particle.draw(p, currentScrollOffset, 1)
+              }
             }
           } else {
             // Normal mode - draw all particles normally
-            particle.draw(p, currentScrollOffset, isHighlighted, isHovered, 1)
+            // Draw with white color if gradient expansion is active
+            if (hasGradientExpansion) {
+              particle.drawWithColor(p, currentScrollOffset, 1, 255, 255, 255)
+            } else {
+              particle.draw(p, currentScrollOffset, 1)
+            }
+          }
+        }
+        
+        // Draw underlines for highlighted words and hovered words
+        // Group consecutive highlighted words together for continuous underlines
+        // Exclude words that are currently flying off screen
+        const allHighlightedWords = Array.from(highlightedWordsRef.current)
+          .filter(wordIndex => {
+            // Don't draw underlines for words that are flying off
+            if (flyOff.active && flyOff.savedWordIndices.includes(wordIndex)) {
+              return false
+            }
+            return true
+          })
+          .sort((a, b) => a - b)
+        const hoveredWord = hoveredWordIndex !== null && isHighlightModeOn && !highlightedWordsRef.current.has(hoveredWordIndex) 
+          ? hoveredWordIndex 
+          : null
+        
+        // Group consecutive highlighted words
+        const groups: number[][] = []
+        let currentGroup: number[] = []
+        
+        for (let i = 0; i < allHighlightedWords.length; i++) {
+          const wordIndex = allHighlightedWords[i]
+          const prevIndex = i > 0 ? allHighlightedWords[i - 1] : -1
+          
+          // If this word is consecutive with the previous, add to current group
+          if (wordIndex === prevIndex + 1) {
+            currentGroup.push(wordIndex)
+          } else {
+            // Start a new group
+            if (currentGroup.length > 0) {
+              groups.push(currentGroup)
+            }
+            currentGroup = [wordIndex]
+          }
+        }
+        if (currentGroup.length > 0) {
+          groups.push(currentGroup)
+        }
+        
+        // Draw continuous underline for each group of consecutive words
+        for (const group of groups) {
+          const firstWordIndex = group[0]
+          const lastWordIndex = group[group.length - 1]
+          
+          // Find all particles from first word to last word (including spaces)
+          // This includes the space after each word (which has the same wordIndex)
+          let leftX = Infinity
+          let rightX = -Infinity
+          let wordY = 0
+          
+          // Get all particles in the range, including spaces
+          // Exclude particles that are flying off screen
+          for (const part of particles) {
+            // Skip particles that are flying off
+            if (flyOff.active && flyOff.savedWordIndices.includes(part.wordIndex)) {
+              continue
+            }
+            // Include particles from first word through last word
+            // Also include spaces that come after words in the group
+            if (part.wordIndex >= firstWordIndex && part.wordIndex <= lastWordIndex) {
+              const drawY = part.y - currentScrollOffset
+              const charWidth = part.size * 0.6 // Approximate character width
+              leftX = Math.min(leftX, part.x - charWidth / 2)
+              rightX = Math.max(rightX, part.x + charWidth / 2)
+              if (wordY === 0) wordY = drawY // Use Y from first particle
+            }
+          }
+          
+          // Draw continuous underline spanning all words in group with red-to-orange gradient
+          // Skip drawing underline if gradient expansion is active (gradient replaces it)
+          const isHoveredWithExpansion = group.some(wordIdx => 
+            gradientExpansionRef.current.wordIndices.includes(wordIdx) && 
+            gradientExpansionRef.current.progress > 0
+          )
+          
+          if (leftX !== Infinity && rightX !== -Infinity && !isHoveredWithExpansion) {
+            const firstWordParticle = particles.find(p => p.wordIndex === firstWordIndex && p.char !== ' ')
+            const textSize = firstWordParticle?.size || 54
+            const underlineY = wordY + textSize * 0.4
+            const underlineThickness = 3
+            
+            // Create red-to-orange gradient for underline (similar to CSS linear-gradient)
+            const ctx = p.drawingContext as CanvasRenderingContext2D
+            const gradient = ctx.createLinearGradient(leftX, underlineY, rightX, underlineY)
+            // Red to orange gradient: #ff6b6b (red) to #ffa500 (orange)
+            gradient.addColorStop(0, 'rgba(255, 107, 107, 1)') // Red
+            gradient.addColorStop(1, 'rgba(255, 165, 0, 1)')   // Orange
+            
+            ctx.strokeStyle = gradient
+            ctx.lineWidth = underlineThickness
+            ctx.beginPath()
+            ctx.moveTo(leftX, underlineY)
+            ctx.lineTo(rightX, underlineY)
+            ctx.stroke()
+          }
+        }
+        
+        // Draw separate underline for hovered word if not highlighted
+        // Don't draw if the word is flying off screen
+        if (hoveredWord !== null && (!flyOff.active || !flyOff.savedWordIndices.includes(hoveredWord))) {
+          const hoveredParticles = particles.filter(p => 
+            p.wordIndex === hoveredWord && 
+            p.char !== ' ' &&
+            (!flyOff.active || !flyOff.savedWordIndices.includes(p.wordIndex))
+          )
+          if (hoveredParticles.length > 0) {
+            let leftX = Infinity
+            let rightX = -Infinity
+            let wordY = 0
+            
+            for (const part of hoveredParticles) {
+              const drawY = part.y - currentScrollOffset
+              const charWidth = part.size * 0.6
+              leftX = Math.min(leftX, part.x - charWidth / 2)
+              rightX = Math.max(rightX, part.x + charWidth / 2)
+              wordY = drawY
+            }
+            
+            const underlineY = wordY + (hoveredParticles[0].size * 0.4)
+            // Create red-to-orange gradient for hover (lighter opacity)
+            const ctx = p.drawingContext as CanvasRenderingContext2D
+            const gradient = ctx.createLinearGradient(leftX, underlineY, rightX, underlineY)
+            // Red to orange gradient with reduced opacity for hover
+            gradient.addColorStop(0, 'rgba(255, 107, 107, 0.78)') // Red with ~78% opacity
+            gradient.addColorStop(1, 'rgba(255, 165, 0, 0.78)')   // Orange with ~78% opacity
+            
+            ctx.strokeStyle = gradient
+            ctx.lineWidth = 2
+            ctx.beginPath()
+            ctx.moveTo(leftX, underlineY)
+            ctx.lineTo(rightX, underlineY)
+            ctx.stroke()
           }
         }
 
@@ -1545,174 +1948,125 @@ const Sketch = () => {
         if (useHandTracking && handDetected) {
           p.push()
           
-          // 1. POINTING - Elegant crosshair at finger position
-          // Show crosshair when pointing, or subtle indicator for other poses
+          // 1. POINTING - Clean, refined cursor
           if (fingerPos.x >= 0 && fingerPos.y >= 0) {
             const isPointingPose = currentPose === 'point'
-            const opacity = isPointingPose ? 1 : 0.3 // Dimmer when not pointing
+            const opacity = isPointingPose ? 1 : 0.25 // Subtle when not pointing
             
-            // Soft outer glow
-            for (let i = 3; i >= 0; i--) {
-              p.noFill()
-              p.stroke(212, 140, 58, (30 - i * 5) * opacity)
-              p.strokeWeight(8 - i * 2)
-              p.circle(fingerPos.x, fingerPos.y, 35 + i * 8)
-            }
+            // Simple, clean ring
+            p.noFill()
+            p.stroke(0, 0, 0, 200 * opacity)
+            p.strokeWeight(1.5)
+            p.circle(fingerPos.x, fingerPos.y, 20)
             
-            // Main ring
-            p.stroke(212, 140, 58, 180 * opacity)
-            p.strokeWeight(2.5)
-            p.circle(fingerPos.x, fingerPos.y, 28)
-            
-            if (isPointingPose) {
-              // Elegant crosshair lines (only when pointing)
-              p.stroke(212, 140, 58, 120)
-              p.strokeWeight(1.5)
-              const gap = 18
-              const len = 14
-              p.line(fingerPos.x - gap - len, fingerPos.y, fingerPos.x - gap, fingerPos.y)
-              p.line(fingerPos.x + gap, fingerPos.y, fingerPos.x + gap + len, fingerPos.y)
-              p.line(fingerPos.x, fingerPos.y - gap - len, fingerPos.x, fingerPos.y - gap)
-              p.line(fingerPos.x, fingerPos.y + gap, fingerPos.x, fingerPos.y + gap + len)
-            }
-            
-            // Center dot with glow
-            p.fill(212, 140, 58, 80 * opacity)
+            // Clean center dot
+            p.fill(0, 0, 0, 255 * opacity)
             p.noStroke()
-            p.circle(fingerPos.x, fingerPos.y, 12)
-            p.fill(212, 140, 58, 255 * opacity)
-            p.circle(fingerPos.x, fingerPos.y, 5)
+            p.circle(fingerPos.x, fingerPos.y, 3)
           }
           
-          // 2. HOLD GESTURE - Static centered ring (black & white)
+          // 2. HOLD GESTURE - Static centered ring (sleek minimal design)
           if (holdProgress > 0 && holdType) {
-            const ringRadius = 60
+            const ringRadius = 50
             const ringX = screenCenterX
             const ringY = screenCenterY
             const isPlay = holdType === 'play'
             
-            // Backdrop
-            p.fill(255, 255, 255, 200)
-            p.noStroke()
-            p.circle(ringX, ringY, ringRadius * 2.5)
+            // Use opacity from ref (updated in gesture handler)
+            const visualOpacity = visualOpacityRef.current
             
-            // Background ring track
+            // Subtle shadow/glow effect
+            p.drawingContext.shadowBlur = 20
+            p.drawingContext.shadowColor = `rgba(0, 0, 0, ${0.1 * visualOpacity})`
+            
+            // Background ring track (very subtle)
             p.noFill()
-            p.stroke(230, 230, 230)
-            p.strokeWeight(10)
+            p.stroke(200, 200, 200, 100 * visualOpacity)
+            p.strokeWeight(2)
             p.circle(ringX, ringY, ringRadius * 2)
             
-            // Glow behind progress
-            p.stroke(0, 0, 0, 40)
-            p.strokeWeight(18)
+            // Main progress arc (elegant thin line)
             const startAngle = -p.HALF_PI
             const endAngle = startAngle + (holdProgress * p.TWO_PI)
+            p.stroke(50, 50, 50, 200 * visualOpacity)
+            p.strokeWeight(3)
+            p.strokeCap(p.ROUND)
             p.arc(ringX, ringY, ringRadius * 2, ringRadius * 2, startAngle, endAngle)
             
-            // Main progress arc
-            p.stroke(30, 30, 30)
-            p.strokeWeight(10)
-            p.arc(ringX, ringY, ringRadius * 2, ringRadius * 2, startAngle, endAngle)
+            // Reset shadow
+            p.drawingContext.shadowBlur = 0
             
-            // Icon in center
-            p.fill(40, 40, 40)
+            // Icon in center (minimal)
+            p.fill(60, 60, 60, 220 * visualOpacity)
             p.noStroke()
             if (isPlay) {
-              // Play triangle
-              const triSize = 22
+              // Play triangle (smaller, more refined)
+              const triSize = 16
               p.triangle(
-                ringX - triSize * 0.4, ringY - triSize,
-                ringX - triSize * 0.4, ringY + triSize,
-                ringX + triSize, ringY
+                ringX - triSize * 0.3, ringY - triSize * 0.8,
+                ringX - triSize * 0.3, ringY + triSize * 0.8,
+                ringX + triSize * 0.9, ringY
               )
             } else {
-              // Pause bars
-              const barW = 10
-              const barH = 28
-              const barGap = 8
-              p.rect(ringX - barW - barGap / 2, ringY - barH / 2, barW, barH, 3)
-              p.rect(ringX + barGap / 2, ringY - barH / 2, barW, barH, 3)
+              // Pause bars (thinner, more elegant)
+              const barW = 4
+              const barH = 20
+              const barGap = 6
+              p.rect(ringX - barW - barGap / 2, ringY - barH / 2, barW, barH, 2)
+              p.rect(ringX + barGap / 2, ringY - barH / 2, barW, barH, 2)
             }
-            
-            // Label below
-            p.fill(60, 60, 60)
-            p.textAlign(p.CENTER, p.TOP)
-            p.textSize(14)
-            p.text(isPlay ? 'Hold to Play' : 'Hold to Pause', ringX, ringY + ringRadius + 20)
           }
           
-          // 3. SWIPE - Centered indicator (same position as play/pause)
+          // 3. SWIPE - Centered indicator (sleek minimal design)
           if (swipeProgress > 0 && swipeDirection) {
-            const ringRadius = 60
+            const ringRadius = 50
             const ringX = screenCenterX
             const ringY = screenCenterY
             const isRight = swipeDirection === 'right'
             
-            // Backdrop
-            p.fill(255, 255, 255, 200)
-            p.noStroke()
-            p.circle(ringX, ringY, ringRadius * 2.5)
+            // Subtle shadow/glow effect
+            p.drawingContext.shadowBlur = 20
+            p.drawingContext.shadowColor = 'rgba(0, 0, 0, 0.1)'
             
-            // Background ring track
+            // Background ring track (very subtle)
             p.noFill()
-            p.stroke(230, 230, 230)
-            p.strokeWeight(10)
+            p.stroke(200, 200, 200, 100)
+            p.strokeWeight(2)
             p.circle(ringX, ringY, ringRadius * 2)
             
-            // Progress arc
-            p.stroke(0, 0, 0, 40)
-            p.strokeWeight(18)
+            // Main progress arc (elegant thin line)
             const startAngle = -p.HALF_PI
             const endAngle = startAngle + (swipeProgress * p.TWO_PI)
+            p.stroke(50, 50, 50, 200)
+            p.strokeWeight(3)
+            p.strokeCap(p.ROUND)
             p.arc(ringX, ringY, ringRadius * 2, ringRadius * 2, startAngle, endAngle)
             
-            // Main progress arc
-            p.stroke(30, 30, 30)
-            p.strokeWeight(10)
-            p.arc(ringX, ringY, ringRadius * 2, ringRadius * 2, startAngle, endAngle)
+            // Reset shadow
+            p.drawingContext.shadowBlur = 0
             
-            // Arrow icon in center
-            p.fill(40, 40, 40)
+            // Arrow icon in center (minimal, single arrow)
+            p.fill(60, 60, 60, 220)
             p.noStroke()
             
-            const arrowSize = 28
+            const arrowSize = 18
             if (isRight) {
-              // Right arrow (forward) >>
+              // Right arrow (forward) - single elegant arrow
               p.beginShape()
-              p.vertex(ringX - arrowSize * 0.3, ringY - arrowSize)
-              p.vertex(ringX + arrowSize * 0.7, ringY)
-              p.vertex(ringX - arrowSize * 0.3, ringY + arrowSize)
-              p.vertex(ringX - arrowSize * 0.1, ringY)
-              p.endShape(p.CLOSE)
-              
-              p.beginShape()
-              p.vertex(ringX + arrowSize * 0.1, ringY - arrowSize)
-              p.vertex(ringX + arrowSize * 1.1, ringY)
-              p.vertex(ringX + arrowSize * 0.1, ringY + arrowSize)
-              p.vertex(ringX + arrowSize * 0.3, ringY)
+              p.vertex(ringX - arrowSize * 0.2, ringY - arrowSize * 0.7)
+              p.vertex(ringX + arrowSize * 0.8, ringY)
+              p.vertex(ringX - arrowSize * 0.2, ringY + arrowSize * 0.7)
+              p.vertex(ringX, ringY)
               p.endShape(p.CLOSE)
             } else {
-              // Left arrow (backward) <<
+              // Left arrow (backward) - single elegant arrow
               p.beginShape()
-              p.vertex(ringX + arrowSize * 0.3, ringY - arrowSize)
-              p.vertex(ringX - arrowSize * 0.7, ringY)
-              p.vertex(ringX + arrowSize * 0.3, ringY + arrowSize)
-              p.vertex(ringX + arrowSize * 0.1, ringY)
-              p.endShape(p.CLOSE)
-              
-              p.beginShape()
-              p.vertex(ringX - arrowSize * 0.1, ringY - arrowSize)
-              p.vertex(ringX - arrowSize * 1.1, ringY)
-              p.vertex(ringX - arrowSize * 0.1, ringY + arrowSize)
-              p.vertex(ringX - arrowSize * 0.3, ringY)
+              p.vertex(ringX + arrowSize * 0.2, ringY - arrowSize * 0.7)
+              p.vertex(ringX - arrowSize * 0.8, ringY)
+              p.vertex(ringX + arrowSize * 0.2, ringY + arrowSize * 0.7)
+              p.vertex(ringX, ringY)
               p.endShape(p.CLOSE)
             }
-            
-            // Label below
-            p.fill(60, 60, 60)
-            p.textAlign(p.CENTER, p.TOP)
-            p.textSize(14)
-            p.text(isRight ? 'Forward +5s' : 'Backward -5s', ringX, ringY + ringRadius + 20)
           }
           
           p.pop()
@@ -1843,7 +2197,18 @@ const Sketch = () => {
   }
 
   return (
-    <div className="sketch-container highlight-mode">
+    <div className="text-mode-container highlight-mode">
+      {/* Header bar */}
+      <header className={`app-header ${isAudioPlaying ? 'header-hidden' : ''}`}>
+        <div className="header-content">
+          <h1 className="app-title">wordplay</h1>
+          <nav className="header-nav">
+            <button className="mode-button"><span>text mode</span></button>
+            <button className="mode-button"><span>play mode</span></button>
+          </nav>
+        </div>
+      </header>
+      
       {/* Hidden text container for accurate character positioning - rendered with React */}
       <div 
         ref={hiddenTextRef}
@@ -1884,11 +2249,11 @@ const Sketch = () => {
       </div>
       <div id="hand-status">Initializing...</div>
       <div className="gesture-help">
-        <span><span className="gesture-icon">○</span> Palm (hold still): Play</span>
-        <span><span className="gesture-icon">○</span> Palm (swipe): Seek ←→</span>
-        <span><span className="gesture-icon">●</span> Fist (hold still): Pause</span>
-        <span><span className="gesture-icon">→</span> Point: Highlight text</span>
-        <span><span className="gesture-icon">↗</span> Diagonal swipe: Save</span>
+        <span><span className="material-symbols-outlined gesture-icon">front_hand</span> Palm (hold still): Play</span>
+        <span><span className="material-symbols-outlined gesture-icon">swipe_left</span><span className="material-symbols-outlined gesture-icon">swipe_right</span> Palm (swipe): Seek</span>
+        <span><img src="/noun-fist-8177248.png" alt="Fist" className="gesture-icon" style={{width: '18px', height: '18px'}} /> Fist (hold still): Pause</span>
+        <span><span className="material-symbols-outlined gesture-icon">touch_app</span> Point: Highlight text</span>
+        <span><span className="material-symbols-outlined gesture-icon">swipe_up</span> Diagonal swipe: Save</span>
       </div>
       
       {/* Saved highlights button */}
@@ -1978,5 +2343,5 @@ const Sketch = () => {
   )
 }
 
-export default Sketch
+export default TextMode
 

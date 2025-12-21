@@ -4,7 +4,7 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  background: #FFFFFF;
+  background: rgb(213, 215, 206); /* rgba(213, 215, 206) */
   overflow: hidden;
 }
 

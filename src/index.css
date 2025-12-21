@@ -5,9 +5,9 @@
 }
 
 body {
-    background: #FFFFFF;
+    background: rgb(213, 215, 206); /* rgba(213, 215, 206) */
     overflow: hidden;
-    font-family: 'Courier New', monospace;
+    font-family: 'Lato', sans-serif;
 }
 
 #root {
